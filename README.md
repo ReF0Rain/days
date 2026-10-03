@@ -113,6 +113,37 @@ Windows PowerShell 里用 `.\gradlew.bat` 代替 `./gradlew`。
 > 本机若只装了 JDK 25，Gradle 8.6 会直接报 `What went wrong: 25.0.1`，必须装 JDK 17；
 > 这也是推荐走云端构建的原因。Wrapper 文件丢失时可用 `python tools/fetch_wrapper.py .` 重新拉取官方文件。
 
+### 完全没有 Android 环境时的本地验证（本仓库自带工具）
+
+这台开发机最初没有 Android SDK、没有 Gradle、只有 JDK 25，下面是为此写的一次性环境搭建脚本，
+装到临时目录（不污染系统）。GitHub Actions 上不需要这些：
+
+```powershell
+py tools\fetch_jdk17.py .           # 便携版 Temurin JDK 17 -> %TEMP%\countdown-jdk17
+py tools\setup_android_sdk.py .     # 便携版 Android SDK（platform-tools + android-34 + build-tools 34）
+                                    # 同时写 local.properties
+
+# 一键构建（自动复制到 ASCII 临时路径、注入 JDK17/SDK 环境）
+py tools\local_build.py --task :app:assembleDebug
+py tools\local_build.py --task :app:assembleDebug :app:testDebugUnitTest
+py tools\local_build.py --task :app:assembleRelease
+
+# 只看错误行
+py tools\local_build.py --task :app:assembleDebug --errors-only
+
+# 脱离 Gradle 单独跑纯 JVM 单测（几秒钟）
+py tools\run_unit_test.py .
+
+# 查 CI 状态 / 拉日志
+py tools\watch_ci.py ReF0Rain/days
+py tools\ci_jobs.py ReF0Rain/days
+```
+
+> **为什么 `local_build.py` 要复制到 ASCII 路径**：项目路径 `...\新建文件夹\CountdownApp` 含非 ASCII 字符，
+> AGP 会直接抛 `StopExecutionException: Your project path contains non-ASCII characters.`。
+> 该脚本把源码复制到 `%TEMP%\CountdownApp` 再构建，从而绕开这个限制；
+> 若你把项目放在纯 ASCII 路径下（如 `D:\code\CountdownApp`），直接 `.\gradlew.bat` 即可，不需要这个脚本。
+
 ### Release 签名
 
 默认情况下（没有 `keystore/countdown.jks`）release 构建会回落到 debug 签名，方便直接产出可安装的 APK。

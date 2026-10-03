@@ -18,3 +18,5 @@ app/debug
 keystore/
 __pycache__/
 *.pyc
+
+dist/
