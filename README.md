@@ -62,9 +62,9 @@ CountdownApp/
 | 步骤 | 作用 |
 | --- | --- |
 | `actions/checkout@v4` | 拉代码 |
-| `actions/setup-java@v4` (temurin 17) | 装 JDK 17 |
-| `gradle/actions/setup-gradle@v3` | 装 Gradle 并开启依赖缓存 |
-| `gradle wrapper --gradle-version 8.6` | **生成 Wrapper**，所以不必提交 `gradle-wrapper.jar` |
+| `actions/setup-java@v4` (temurin 17) | 装 JDK 17（Gradle 8.6 不能在 JDK 25 上跑） |
+| `gradle/actions/setup-gradle@v3` | 配置 Gradle 依赖缓存（不负责提供 `gradle` 命令） |
+| `chmod +x gradlew` + `./gradlew --version` | **验证仓库内已提交的 Wrapper**（jar 缺失时自动用官方发行包补） |
 | `./gradlew :app:testDebugUnitTest` | 跑单元测试，失败即中断 |
 | `./gradlew :app:assembleDebug` / `assembleRelease` | 出两个 APK |
 | `actions/upload-artifact@v4` | 上传 `countdown-debug-apk` / `countdown-release-apk` |
@@ -74,18 +74,27 @@ CountdownApp/
 
 > Artifacts 默认保留 30 天；如需长期保存，可在 CI 里加一步把 APK 发布到 Release（需要 `contents: write` 权限）。
 
+### 查构建状态 / 拿下载链接
+
+```powershell
+# 查最新一次运行（不加 -Wait 只报告当前状态）
+.\scripts\ci-status.ps1 -Repo ReF0Rain/days
+
+# 轮询到结束，并打印 artifact 下载地址
+.\scripts\ci-status.ps1 -Repo ReF0Rain/days -Wait
+```
+
+也可以用 Python 版本：`python tools/watch_ci.py ReF0Rain/days`（跑完自动列出产物）。
+CI 失败时用 `python tools/ci_jobs.py ReF0Rain/days` 看是哪一步挂了。
+
 ## 本地构建（可选）
 
 需要 JDK 17（AGP 8.4 支持 17~21，请勿使用 JDK 22+）与 Android SDK（API 34 + Build-Tools）。
 
-**第 0 步（必做一次）：生成 Gradle Wrapper。** 仓库里只带了 `gradle/wrapper/gradle-wrapper.properties`（已锁定 Gradle 8.6），
-`gradlew` / `gradlew.bat` / `gradle-wrapper.jar` 这三个二进制文件需要由本机 Gradle 生成一次；
-用 Android Studio 打开项目时它也会自动补全。**走云端构建则完全不需要这一步，CI 里会自动生成。**
+Wrapper 已随仓库提交（`gradlew` / `gradlew.bat` / `gradle/wrapper/gradle-wrapper.jar`，Gradle 8.6，
+并带官方发行包 `distributionSha256Sum` 校验），**开箱即可构建，不需要先跑 `gradle wrapper`**。
 
 ```bash
-# 需要本机已安装 Gradle（任意 8.x 版本均可，会按 properties 下载 8.6）
-gradle wrapper --gradle-version 8.6
-
 # 1) Debug APK
 ./gradlew :app:assembleDebug
 # 产物：app/build/outputs/apk/debug/app-debug.apk
@@ -101,7 +110,8 @@ gradle wrapper --gradle-version 8.6
 
 Windows PowerShell 里用 `.\gradlew.bat` 代替 `./gradlew`。
 
-> 本机若只装了 JDK 25，AGP 8.4 会直接报错，必须装 JDK 17；这也是推荐走云端构建的原因。
+> 本机若只装了 JDK 25，Gradle 8.6 会直接报 `What went wrong: 25.0.1`，必须装 JDK 17；
+> 这也是推荐走云端构建的原因。Wrapper 文件丢失时可用 `python tools/fetch_wrapper.py .` 重新拉取官方文件。
 
 ### Release 签名
 
