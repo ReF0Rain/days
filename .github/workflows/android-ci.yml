@@ -70,6 +70,20 @@ jobs:
       - name: Run unit tests
         run: ./gradlew :app:testDebugUnitTest --stacktrace
 
+      # 5b) 把失败用例的堆栈直接打进日志（GitHub 下载 artifact 要求登录，日志是公开可读的）
+      - name: Show unit test failures
+        if: failure()
+        run: |
+          set -uo pipefail
+          found=0
+          while IFS= read -r f; do
+            found=1
+            echo "===== $f ====="
+            grep -n -A 40 '<failure\|<error' "$f" | head -n 160 || true
+          done < <(find app/build/test-results -name '*.xml' 2>/dev/null || true)
+          [ "$found" -eq 0 ] && echo "没有找到 test-results XML（可能是编译失败）"
+          exit 0
+
       # 6) 构建 debug APK
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --stacktrace
