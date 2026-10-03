@@ -1,0 +1,168 @@
+package com.example.countdown.widget
+
+import android.content.Context
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.glance.GlanceId
+import androidx.glance.GlanceModifier
+import androidx.glance.action.clickable
+import androidx.glance.appwidget.GlanceAppWidget
+import androidx.glance.appwidget.action.actionStartActivity
+import androidx.glance.appwidget.cornerRadius
+import androidx.glance.appwidget.provideContent
+import androidx.glance.appwidget.updateAll
+import androidx.glance.background
+import androidx.glance.layout.Alignment
+import androidx.glance.layout.Column
+import androidx.glance.layout.Row
+import androidx.glance.layout.Spacer
+import androidx.glance.layout.defaultWeight
+import androidx.glance.layout.fillMaxSize
+import androidx.glance.layout.fillMaxWidth
+import androidx.glance.layout.height
+import androidx.glance.layout.padding
+import androidx.glance.layout.width
+import androidx.glance.text.FontWeight
+import androidx.glance.text.Text
+import androidx.glance.text.TextStyle
+import androidx.glance.unit.ColorProvider
+import com.example.countdown.MainActivity
+import com.example.countdown.data.CountdownCalculator
+import com.example.countdown.data.CountdownEvent
+import com.example.countdown.data.CountdownRepository
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+
+private val SHORT_DATE: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("M月d日", Locale.CHINA)
+
+/**
+ * 桌面小组件（Glance 实现，可选功能）。
+ * 数据同样来自 Room；WorkManager 每天刷新一次，也可以在应用内手动刷新。
+ */
+class CountdownWidget : GlanceAppWidget() {
+
+    override suspend fun provideGlance(context: Context, id: GlanceId) {
+        // 读取失败时退化为空列表，避免小组件进程崩溃
+        val events = runCatching {
+            CountdownRepository.getInstance(context).getAllOnce()
+        }.getOrDefault(emptyList())
+
+        provideContent {
+            CountdownWidgetContent(events)
+        }
+    }
+}
+
+/** 刷新所有已添加到桌面的小组件 */
+suspend fun refreshAllWidgets(context: Context) {
+    runCatching { CountdownWidget().updateAll(context) }
+}
+
+/** 小组件内容：置顶优先，其余按剩余天数升序，最多 4 条 */
+@Composable
+fun CountdownWidgetContent(allEvents: List<CountdownEvent>) {
+    val events = allEvents
+        .sortedWith(compareBy({ CountdownCalculator.daysUntil(it.targetLocalDate) }, { it.title }))
+        .sortedByDescending { it.pinned }
+        .take(4)
+
+    Column(
+        modifier = GlanceModifier
+            .fillMaxSize()
+            .background(ColorProvider(Color.White))
+            .cornerRadius(20.dp)
+            .padding(12.dp)
+            .clickable(actionStartActivity<MainActivity>())
+    ) {
+        Text(
+            text = "倒计日",
+            style = TextStyle(
+                color = ColorProvider(Color(0xFF1565C0)),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold
+            )
+        )
+
+        Spacer(GlanceModifier.height(6.dp))
+
+        if (events.isEmpty()) {
+            Text(
+                text = "暂无事件，点我添加",
+                style = TextStyle(
+                    color = ColorProvider(Color(0xFF6B6B72)),
+                    fontSize = 13.sp
+                )
+            )
+        } else {
+            events.forEach { event ->
+                WidgetRow(event)
+                Spacer(GlanceModifier.height(6.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun WidgetRow(event: CountdownEvent) {
+    val days = CountdownCalculator.daysUntil(event.targetLocalDate)
+    val dayText = when {
+        days > 0L -> days.toString()
+        days == 0L -> "0"
+        else -> (-days).toString()
+    }
+    val suffix = when {
+        days > 0L -> "天后"
+        days == 0L -> "今天"
+        else -> "天前"
+    }
+    val accent = when {
+        days < 0L -> Color(0xFFC62828)
+        days == 0L -> Color(0xFFFFA000)
+        else -> Color(0xFF1565C0)
+    }
+
+    Row(
+        modifier = GlanceModifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Vertical.CenterVertically
+    ) {
+        Text(
+            text = dayText,
+            style = TextStyle(
+                color = ColorProvider(accent),
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold
+            )
+        )
+        Spacer(GlanceModifier.width(4.dp))
+        Text(
+            text = suffix,
+            style = TextStyle(
+                color = ColorProvider(accent),
+                fontSize = 11.sp
+            )
+        )
+        Spacer(GlanceModifier.width(10.dp))
+        Column(modifier = GlanceModifier.defaultWeight()) {
+            Text(
+                text = event.title,
+                style = TextStyle(
+                    color = ColorProvider(Color(0xFF1B1B1F)),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                ),
+                maxLines = 1
+            )
+            Text(
+                text = event.targetLocalDate.format(SHORT_DATE),
+                style = TextStyle(
+                    color = ColorProvider(Color(0xFF6B6B72)),
+                    fontSize = 11.sp
+                ),
+                maxLines = 1
+            )
+        }
+    }
+}

@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">倒计日</string>
+
+    <!-- 小组件 -->
+    <string name="widget_label">倒计日 · 小组件</string>
+    <string name="widget_description">在主屏幕上显示最近的倒计日事件</string>
+    <string name="widget_empty">暂无倒计日事件\n打开应用添加一个吧</string>
+    <string name="widget_days_unit">天</string>
+    <string name="widget_refresh">刷新</string>
+
+    <!-- 通知 -->
+    <string name="channel_daily_name">每日倒数提醒</string>
+    <string name="channel_daily_description">每天更新一次倒数天数</string>
+    <string name="notify_permission_rationale">开启通知权限后，才能在每天收到倒数天数提醒。</string>
+
+    <!-- 列表页 -->
+    <string name="list_title">倒计日</string>
+    <string name="list_subtitle_empty">还没有事件</string>
+    <string name="action_add">新建倒计日</string>
+    <string name="action_refresh">立即刷新通知</string>
+    <string name="action_sort">排序方式</string>
+    <string name="sort_by_remaining">按剩余天数</string>
+    <string name="sort_by_created">按创建时间</string>
+    <string name="empty_title">还没有任何倒计日</string>
+    <string name="empty_desc">点击右下角按钮，添加你的第一个倒计日事件。</string>
+    <string name="empty_action">添加事件</string>
+    <string name="action_edit">编辑</string>
+    <string name="action_delete">删除</string>
+    <string name="action_cancel">取消</string>
+    <string name="action_save">保存</string>
+    <string name="action_back">返回</string>
+    <string name="action_confirm">确定</string>
+    <string name="action_notify_permission">开启通知</string>
+
+    <!-- 剩余天数文案 -->
+    <string name="days_remaining_format">%1$d 天</string>
+    <string name="days_today">就是今天</string>
+    <string name="days_passed_format">已过 %1$d 天</string>
+    <string name="days_unit">天</string>
+
+    <!-- 删除确认 -->
+    <string name="delete_dialog_title">删除事件</string>
+    <string name="delete_dialog_message">确定要删除「%1$s」吗？此操作不可撤销。</string>
+
+    <!-- 表单 -->
+    <string name="form_title_new">新建倒计日</string>
+    <string name="form_title_edit">编辑倒计日</string>
+    <string name="field_title">事件名称</string>
+    <string name="field_title_hint">例如：结婚纪念日</string>
+    <string name="field_date">目标日期</string>
+    <string name="field_note">备注（可选）</string>
+    <string name="field_note_hint">写点什么…</string>
+    <string name="field_notify">每日倒数通知</string>
+    <string name="field_notify_desc">每天 9:00 推送该事件的剩余天数</string>
+    <string name="field_pinned">置顶高亮</string>
+    <string name="field_pinned_desc">在列表顶部与桌面小组件中优先展示</string>
+    <string name="pick_date">选择日期</string>
+    <string name="error_title_required">请输入事件名称</string>
+    <string name="error_save_failed">保存失败，请重试</string>
+    <string name="saved_toast">已保存</string>
+    <string name="deleted_toast">已删除</string>
+    <string name="refresh_toast">通知已刷新</string>
+    <string name="permission_denied_toast">未授予通知权限，将无法收到每日提醒</string>
+
+    <!-- 通知内容 -->
+    <string name="notify_channel_name">倒数提醒</string>
+    <string name="notify_channel_desc">倒计日事件的每日提醒</string>
+</resources>

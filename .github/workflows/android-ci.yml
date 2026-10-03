@@ -1,0 +1,102 @@
+name: Android CI
+
+# ---------------------------------------------------------------------------
+# 触发时机
+#   - push 到 main / master / dev / develop
+#   - 任何指向 main / master 的 Pull Request
+#   - 手动触发（Actions 页面点 "Run workflow"，可选只出 debug 或 debug+release）
+# ---------------------------------------------------------------------------
+on:
+  push:
+    branches: [main, master, dev, develop]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      build_release:
+        description: "同时构建 release APK"
+        type: boolean
+        default: true
+
+# 同一分支连续 push 时，取消上一次还没跑完的构建，省额度
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# 只读权限即可（用 artifact 上传，不需要写仓库）
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build APKs
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      # 1) 拉代码
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2) 安装 Java 17（AGP 8.4 只支持 17~21，runner 默认的 21 也行，这里显式锁定 17）
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # 3) 安装 Gradle（首次会直接按 gradle-wrapper.properties 下载 8.6，不需要提交 gradle-wrapper.jar）
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      # 4) 生成 Gradle Wrapper —— 仓库里没有提交 gradlew/gradle-wrapper.jar，这一步是关键
+      - name: Generate Gradle wrapper
+        run: gradle wrapper --gradle-version 8.6
+
+      # 5) 给 gradlew 加可执行权限（Windows 上开发时 Git 常常丢掉这个位）
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      # 6) 跑单元测试（失败即中断，保证产物不是“带病”的）
+      - name: Run unit tests
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
+
+      # 7) 构建 debug APK
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      # 8) 构建 release APK（未配置 keystore 时会自动回落到 debug 签名，仍可安装）
+      - name: Build release APK
+        if: github.event_name != 'workflow_dispatch' || inputs.build_release
+        run: ./gradlew :app:assembleRelease --stacktrace
+
+      # 9) 上传 artifact：debug
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: countdown-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # 10) 上传 artifact：release
+      - name: Upload release APK
+        if: github.event_name != 'workflow_dispatch' || inputs.build_release
+        uses: actions/upload-artifact@v4
+        with:
+          name: countdown-release-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # 11) 构建失败时把完整日志也传上去，方便定位
+      - name: Upload build reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-reports
+          path: |
+            app/build/reports/**
+            app/build/outputs/logs/**
+          if-no-files-found: ignore
+          retention-days: 7
