@@ -79,6 +79,20 @@ def fetch_kotlinc(cache: str) -> str:
     return lib
 
 
+def find_java17() -> str:
+    """优先使用 tools/fetch_jdk17.py 下载的便携版 JDK 17（JDK 25 跑不了 Kotlin 1.9.24）。"""
+    cache = os.path.join(os.environ.get("TEMP", "."), "countdown-jdk17")
+    if os.path.isdir(cache):
+        for entry in sorted(os.listdir(cache)):
+            candidate = os.path.join(cache, entry, "bin", "java.exe")
+            if os.path.isfile(candidate):
+                return candidate
+    env_home = os.environ.get("JAVA_HOME")
+    if env_home and os.path.isfile(os.path.join(env_home, "bin", "java.exe")):
+        return os.path.join(env_home, "bin", "java.exe")
+    raise SystemExit("找不到 JDK 17，先运行: python tools/fetch_jdk17.py")
+
+
 def main() -> int:
     root = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.getcwd())
     cache = os.path.join(os.environ.get("TEMP", "."), "countdown-testcache")
@@ -107,9 +121,8 @@ def main() -> int:
     out = os.path.join(cache, "classes")
     os.makedirs(out, exist_ok=True)
 
-    java = os.path.join(os.environ.get("JAVA_HOME", ""), "bin", "java.exe")
-    if not os.path.exists(java):
-        java = "java"
+    java = find_java17()
+    print("using java:", java)
 
     # 使用官方 kotlinc 发行包里的编译器
     compile_cmd = [

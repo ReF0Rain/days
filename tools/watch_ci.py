@@ -15,10 +15,18 @@ API = "https://api.github.com"
 HEADERS = {"User-Agent": "countdown-ci-watch", "Accept": "application/vnd.github+json"}
 
 
-def get(url: str, timeout: int = 45):
-    req = urllib.request.Request(url, headers=HEADERS)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.load(resp)
+def get(url: str, timeout: int = 45, attempts: int = 6):
+    """带重试的 GET：这台机器到 GitHub 的连接会间歇性 SSL EOF。"""
+    last = None
+    for i in range(1, attempts + 1):
+        try:
+            req = urllib.request.Request(url, headers=HEADERS)
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.load(resp)
+        except Exception as exc:  # noqa: BLE001
+            last = exc
+            time.sleep(min(3 * i, 15))
+    raise last
 
 
 def fmt_duration(start_iso: str, end_iso: str | None) -> str:

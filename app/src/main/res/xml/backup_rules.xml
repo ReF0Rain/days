@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  仅备份用户数据：Room 数据库 + DataStore 偏好。
+  注意：<exclude> 的 path 必须落在某个 <include> 范围内，否则 lint 会报
+  FullBackupContent 致命错误（release 构建会直接失败）。
+  WorkManager 的内部偏好无需 exclude —— 它本身就不在 include 列表里。
+-->
 <full-backup-content>
     <include domain="database" path="countdown.db" />
     <include domain="sharedpref" path="countdown_settings.preferences_pb" />
-    <exclude domain="sharedpref" path="androidx.work.util.preferences.xml" />
 </full-backup-content>

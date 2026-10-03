@@ -1,6 +1,7 @@
 package com.example.countdown.widget
 
 import android.content.Context
+import android.content.Intent
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -18,7 +19,6 @@ import androidx.glance.layout.Alignment
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
-import androidx.glance.layout.defaultWeight
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
@@ -51,7 +51,7 @@ class CountdownWidget : GlanceAppWidget() {
         }.getOrDefault(emptyList())
 
         provideContent {
-            CountdownWidgetContent(events)
+            CountdownWidgetContent(events, context)
         }
     }
 }
@@ -61,9 +61,19 @@ suspend fun refreshAllWidgets(context: Context) {
     runCatching { CountdownWidget().updateAll(context) }
 }
 
+/**
+ * 点击小组件时打开主界面。
+ * 注意：Glance 1.1.0 里 actionStartActivity 只有接收 Intent 的重载，
+ * 没有 `actionStartActivity<T>()` 这种带类型参数的重载。
+ */
+private fun openAppIntent(context: Context): Intent =
+    Intent(context, MainActivity::class.java).apply {
+        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+    }
+
 /** 小组件内容：置顶优先，其余按剩余天数升序，最多 4 条 */
 @Composable
-fun CountdownWidgetContent(allEvents: List<CountdownEvent>) {
+fun CountdownWidgetContent(allEvents: List<CountdownEvent>, context: Context) {
     val events = allEvents
         .sortedWith(compareBy({ CountdownCalculator.daysUntil(it.targetLocalDate) }, { it.title }))
         .sortedByDescending { it.pinned }
@@ -75,7 +85,7 @@ fun CountdownWidgetContent(allEvents: List<CountdownEvent>) {
             .background(ColorProvider(Color.White))
             .cornerRadius(20.dp)
             .padding(12.dp)
-            .clickable(actionStartActivity<MainActivity>())
+            .clickable(actionStartActivity(openAppIntent(context)))
     ) {
         Text(
             text = "倒计日",
@@ -145,7 +155,9 @@ private fun WidgetRow(event: CountdownEvent) {
             )
         )
         Spacer(GlanceModifier.width(10.dp))
-        Column(modifier = GlanceModifier.defaultWeight()) {
+        // defaultWeight() 是 RowScope 的成员扩展，不需要（也不能）单独 import。
+        // 这里改用 fillMaxWidth()，同样让文字列占满剩余空间。
+        Column(modifier = GlanceModifier.fillMaxWidth()) {
             Text(
                 text = event.title,
                 style = TextStyle(

@@ -1,13 +1,13 @@
 *.iml
 .gradle
 /local.properties
+local.properties
 /.idea
 .DS_Store
 /build
 /captures
 .externalNativeBuild
 .cxx
-local.properties
 app/build
 app/release
 app/debug
@@ -16,3 +16,5 @@ app/debug
 *.keystore
 !debug.keystore
 keystore/
+__pycache__/
+*.pyc

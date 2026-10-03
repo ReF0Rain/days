@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -56,23 +57,31 @@ class CountdownListViewModel(
 
     private val sortOrder = MutableStateFlow(SortOrder.BY_REMAINING_DAYS)
 
-    /** null 表示首帧还没到（loading） */
-    private val rawItems: StateFlow<List<CountdownItem>?> = repository.observeAll()
+    /** 首帧数据是否已到达：Room 的 Flow 首次发射前显示 loading */
+    private val loaded = MutableStateFlow(false)
+
+    /**
+     * 注意：这里刻意不用 null 做哨兵值。repository.observeAll() 的类型是
+     * Flow<List<CountdownEvent>>，若用 null 当初值或 catch 的兜底值，会直接编译失败
+     * （"Null can not be a value of a non-null type List<...>"），所以改用独立的 loaded 标志。
+     */
+    private val items: StateFlow<List<CountdownItem>> = repository.observeAll()
         .map { events -> events.map { it.toItem() } }
-        .catch { emit(null) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .onEach { loaded.value = true }
+        .catch { emit(emptyList()) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val uiState: StateFlow<CountdownUiState> =
-        combine(rawItems, sortOrder) { items, order ->
-            if (items == null) {
+        combine(items, sortOrder, loaded) { list, order, isLoaded ->
+            if (!isLoaded) {
                 CountdownUiState(loading = true, sortOrder = order)
             } else {
                 val sorted = when (order) {
                     // 按剩余天数升序：已过期的排在最前，越接近今天越靠前
-                    SortOrder.BY_REMAINING_DAYS -> items.sortedWith(
+                    SortOrder.BY_REMAINING_DAYS -> list.sortedWith(
                         compareBy<CountdownItem> { it.remainingDays }.thenBy { it.event.title }
                     )
-                    SortOrder.BY_CREATED_TIME -> items.sortedByDescending { it.event.createdAt }
+                    SortOrder.BY_CREATED_TIME -> list.sortedByDescending { it.event.createdAt }
                 }
                 CountdownUiState(items = sorted, sortOrder = order, loading = false)
             }
