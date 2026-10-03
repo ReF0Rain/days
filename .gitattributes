@@ -1,0 +1,37 @@
+# ---------------------------------------------------------------------------
+# 换行符统一
+# gradlew 是 POSIX shell 脚本，在 Windows 上被 autocrlf 转成 CRLF 后，
+# Linux/macOS 上会报 "bad interpreter: No such file or directory"。
+# 这里强制它始终以 LF 存储，并确保检出时保留可执行标志。
+# ---------------------------------------------------------------------------
+gradlew text eol=lf
+gradlew.bat text eol=crlf
+*.sh text eol=lf
+
+# 二进制资源不要做任何转换
+*.jar binary
+*.png binary
+*.jpg binary
+*.webp binary
+*.zip binary
+*.jks binary
+*.keystore binary
+
+# 其余文本文件：仓库统一 LF，检出时按平台
+* text=auto eol=lf
+
+# Windows 专用脚本保持 CRLF
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Gradle / Kotlin / Java
+*.gradle text eol=lf
+*.gradle.kts text eol=lf
+*.kt text eol=lf
+*.java text eol=lf
+*.toml text eol=lf
+*.pro text eol=lf
+
+# 让 git 在 diff 时把 jar 当二进制
+*.jar -diff
