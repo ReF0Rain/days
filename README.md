@@ -144,26 +144,41 @@ py tools\ci_jobs.py ReF0Rain/days
 > 该脚本把源码复制到 `%TEMP%\CountdownApp` 再构建，从而绕开这个限制；
 > 若你把项目放在纯 ASCII 路径下（如 `D:\code\CountdownApp`），直接 `.\gradlew.bat` 即可，不需要这个脚本。
 
-### Release 签名
+### Release 签名与发版
 
-默认情况下（没有 `keystore/countdown.jks`）release 构建会回落到 debug 签名，方便直接产出可安装的 APK。
-接入正式签名：
+正式签名（keystore 已生成）、GitHub Secrets 配置、打 tag 发版流程、ProGuard mapping 留档、
+以及**数据库迁移约定**，全部整理在 **[docs/RELEASE.md](docs/RELEASE.md)**。速览：
 
-```bash
-keytool -genkeypair -v -keystore keystore/countdown.jks \
-  -alias countdown -keyalg RSA -keysize 2048 -validity 10000
+```powershell
+# 配置 Secrets（需 gh 已登录；未登录会打印要手动粘贴的值）
+.\scripts\setup-github-secrets.ps1 -Repo ReF0Rain/days
 
-# 可选：用环境变量覆盖默认值
-export COUNTDOWN_KEYSTORE=keystore/countdown.jks
-export COUNTDOWN_STORE_PASSWORD=你的密码
-export COUNTDOWN_KEY_ALIAS=countdown
-export COUNTDOWN_KEY_PASSWORD=你的密码
+# 发版：打 tag 并推送，CI 会自动签名构建 + 创建 GitHub Release
+git tag v1.0.0
+git push origin v1.0.0
+# 之后永久下载地址： https://github.com/ReF0Rain/days/releases/latest
 ```
+
+**版本号从 tag 自动推导**，不需要手改 `build.gradle.kts`：`v1.2.3` → versionName `1.2.3`、
+versionCode `10203`（= `1*10000 + 2*100 + 3`）。没有 tag 时回落到 `1.0.0` / `1`。
+
+本机查看当前生效的签名方式与版本：
+```bash
+./gradlew :app:printSigningInfo
+```
+
+> 签名凭据解析优先级：环境变量 → `keystore/keystore.properties` → 回落到 debug 签名。
+> 所以本机 `assembleRelease` 出的就是正式签名包；CI 上没配 Secrets 时则回落并明确告警。
+
+### Release 签名（历史说明）
+
+`keystore/` 目录不入库（`.gitignore` 已忽略），私钥请离线备份 —— 丢失后已发布的应用将无法更新。
 
 ### 安装到设备
 
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
+# 注意 release 包与 debug 包 applicationId 不同（.debug 后缀），会同时装成两个图标
 adb install -r app/build/outputs/apk/release/app-release.apk
 ```
 
@@ -175,3 +190,5 @@ adb install -r app/build/outputs/apk/release/app-release.apk
   汇总成一条通知（最多列 6 条事件），已过期事件不再提醒。
 - **小组件**：长按桌面 → 小组件 → 找到「倒计日」；`updatePeriodMillis=0`，由 WorkManager 驱动刷新。
 - **通知权限**：仅在 Android 13+ 请求；被拒绝时事件仍可保存，只是不发通知。
+- **数据库迁移**：刻意不用 `fallbackToDestructiveMigration()`（那会静默清空用户数据），
+  改为显式注册迁移；改表结构时请按 [docs/RELEASE.md](docs/RELEASE.md) 第三节的步骤操作。

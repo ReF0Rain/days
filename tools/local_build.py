@@ -22,8 +22,36 @@ TEMP = os.environ.get("TEMP", ".")
 SDK = os.path.join(TEMP, "android-sdk")
 JDK_CACHE = os.path.join(TEMP, "countdown-jdk17")
 DEST = os.path.join(TEMP, "CountdownApp")
-SKIP_DIRS = {".git", "build", ".gradle", ".idea", "schemas"}
+SKIP_DIRS = {".git", "build", ".gradle", ".idea"}
 SKIP_FILES = {"local.properties"}
+
+
+def sync_schemas_back(src: str, dst: str) -> int:
+    """把构建目录里 Room 导出的 schema JSON 同步回源码仓库。
+
+    KSP 按 room.schemaLocation 把 schema 写到构建目录的 app/schemas/。
+    这些 JSON 是迁移测试的权威依据，必须进仓库，所以构建成功后回拷。
+    """
+    generated = os.path.join(dst, "app", "schemas")
+    target = os.path.join(src, "app", "schemas")
+    if not os.path.isdir(generated):
+        return 0
+    count = 0
+    for root, _dirs, files in os.walk(generated):
+        rel = os.path.relpath(root, generated)
+        out_dir = target if rel == "." else os.path.join(target, rel)
+        os.makedirs(out_dir, exist_ok=True)
+        for name in files:
+            if not name.endswith(".json"):
+                continue
+            src_file = os.path.join(root, name)
+            dst_file = os.path.join(out_dir, name)
+            if os.path.exists(dst_file) and open(dst_file, "rb").read() == open(src_file, "rb").read():
+                continue
+            shutil.copy2(src_file, dst_file)
+            print("synced schema ->", os.path.relpath(dst_file, src))
+            count += 1
+    return count
 
 
 def find_jdk17() -> str:
@@ -106,6 +134,12 @@ def main() -> int:
     else:
         for line in out.splitlines()[-args.tail:]:
             print(line.rstrip())
+
+    # 构建成功时把 Room 导出的 schema 回拷到源码仓库
+    if proc.returncode == 0:
+        synced = sync_schemas_back(args.src, DEST)
+        if synced == 0:
+            print("schema 无变化")
 
     print("EXIT =", proc.returncode)
     return proc.returncode
