@@ -118,7 +118,7 @@ class CountdownCalculatorTest {
     }
 
     @Test
-    fun `mixed modes sort together by urgency`() {
+    fun `mixed modes sort with countdown group first`() {
         val events = listOf(
             CountdownEvent(
                 id = 1, title = "倒计时3天",
@@ -132,11 +132,21 @@ class CountdownCalculatorTest {
             CountdownEvent(
                 id = 3, title = "已过期",
                 targetDate = LocalDate.of(2026, 9, 1).toEpochDay()
+            ),
+            CountdownEvent(
+                id = 4, title = "正计很久以前",
+                targetDate = LocalDate.of(2020, 1, 1).toEpochDay(),
+                mode = CountdownMode.COUNTUP
             )
         )
         val sorted = CountdownCalculator.sortByRemaining(events, today).map { it.title }
-        // 已过期(-32) < 正计1天前(-1) < 倒计时3天(3)
-        assertEquals(listOf("已过期", "正计1天前", "倒计时3天"), sorted)
+        // 倒计日组在前（组内按剩余天数升序：已过期 -> 倒计时3天）
+        // 正计日组在后（组内按已过天数降序：400 天 -> 1 天，越久越靠前）
+        // 绝不能让"正计很久以前"跑到"已过期"前面 —— 那看起来像 2000 天前的事更紧急
+        assertEquals(
+            listOf("已过期", "倒计时3天", "正计很久以前", "正计1天前"),
+            sorted
+        )
     }
 
     // ---------------- 枚举与存储 ----------------

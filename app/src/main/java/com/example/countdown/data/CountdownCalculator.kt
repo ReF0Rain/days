@@ -22,15 +22,33 @@ object CountdownCalculator {
     /**
      * 排序用的键，数值越小越靠前。
      *
-     * 倒计日：直接用剩余天数（已过期为负数 -> 排最前）
-     * 正计日：用已过天数的负数 —— 已过越多值越小越靠前，
-     *         这样"刚发生的事情排在后面"，与倒计日的紧迫感语义一致。
+     * 排序规则（分组，避免倒计日与正计日混排后出现无意义的结果）：
+     *   1. 先按模式分组：倒计日在前，正计日在后
+     *   2. 组内：
+     *      - 倒计日：按剩余天数升序 —— 已过期的最靠前，越接近今天越靠前
+     *      - 正计日：按已过天数降序 —— 刚发生的靠前，久远的靠后
+     *
+     * 为什么必须分组：如果把正计日的"已过 400 天"也当作数值一起升序排，
+     * 它会排到"已过期 10 天"的前面，看起来像"400 天前的事比刚过期的事更紧急"，
+     * 这是没有意义的。
      */
-    fun sortKey(event: CountdownEvent, today: LocalDate = LocalDate.now()): Long =
-        when (event.mode) {
+    fun sortKey(event: CountdownEvent, today: LocalDate = LocalDate.now()): Long {
+        // 组偏移：倒计日整体排在正计日之前。
+        // 倒计日的键范围是 [-10^9, 10^9]，减 10^10 后落到正计日键之下。
+        val groupOffset = when (event.mode) {
+            CountdownMode.COUNTDOWN -> -GROUP_GAP
+            CountdownMode.COUNTUP -> 0L
+        }
+        val value = when (event.mode) {
             CountdownMode.COUNTDOWN -> daysUntil(event.targetLocalDate, today)
+            // 负值：已过越多值越小 -> 久远的靠后，刚发生的靠前
             CountdownMode.COUNTUP -> -elapsedDays(event.targetLocalDate, today)
         }
+        return groupOffset + value
+    }
+
+    /** 分组间隔，远大于任何实际天数，保证两组不会交叉 */
+    private const val GROUP_GAP = 10_000_000_000L
 
     /** 按紧急程度升序排序 */
     fun sortByRemaining(

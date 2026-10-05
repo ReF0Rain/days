@@ -1,6 +1,7 @@
 package com.example.countdown.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,6 +22,8 @@ import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.outlined.Event
+import androidx.compose.material.icons.outlined.HourglassEmpty
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -40,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
@@ -57,6 +62,7 @@ import com.example.countdown.ui.CountdownUiState
 import com.example.countdown.ui.SortOrder
 import com.example.countdown.ui.components.EventCard
 import com.example.countdown.ui.components.formatFull
+import com.example.countdown.ui.components.formatWeek
 import com.example.countdown.ui.theme.CountdownTheme
 import java.time.LocalDate
 
@@ -269,53 +275,95 @@ private fun HeroCountdownCard(
                 ),
                 shape = RoundedCornerShape(26.dp)
             )
-            .padding(20.dp)
+            .padding(horizontal = 20.dp, vertical = 18.dp)
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            // 顶部：徽章 + 模式标签（与列表卡片保持同样的信息结构）
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.White.copy(alpha = 0.22f))
+                        .border(
+                            width = 1.dp,
+                            color = Color.White.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(50)
+                        )
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = if (item.mode == CountdownMode.COUNTUP) {
+                            Icons.Outlined.HourglassEmpty
+                        } else {
+                            Icons.Outlined.Event
+                        },
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        text = if (item.mode == CountdownMode.COUNTUP) "正计日" else "倒计日",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
                 Text(
-                    text = item.event.title,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = Color.White,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    text = if (item.mode == CountdownMode.COUNTUP) "正计日" else "倒计日",
+                    text = if (item.event.pinned) "已置顶" else "",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.9f)
+                    color = Color.White.copy(alpha = 0.85f)
                 )
             }
 
-            Spacer(Modifier.weight(1f))
+            // 中部：标题
+            Text(
+                text = item.event.title,
+                style = MaterialTheme.typography.titleLarge,
+                color = Color.White,
+                maxLines = 1
+            )
 
-            Row(verticalAlignment = Alignment.Bottom) {
+            // 底部：天数 + 日期（结构与列表卡片一致，避免同一事件在 Hero 与列表里长得完全不同）
+            Column {
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(
+                        text = item.displayDays.toString(),
+                        style = MaterialTheme.typography.displayLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 64.sp,
+                            lineHeight = 66.sp
+                        ),
+                        color = Color.White
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = when (item.state) {
+                            CountdownCalculator.DayState.TODAY -> "就是今天"
+                            CountdownCalculator.DayState.ELAPSED -> "天"
+                            CountdownCalculator.DayState.PAST -> "天前"
+                            CountdownCalculator.DayState.FUTURE -> "天后"
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White.copy(alpha = 0.95f),
+                        modifier = Modifier.padding(bottom = 10.dp)
+                    )
+                }
+                Spacer(Modifier.height(2.dp))
                 Text(
-                    text = item.displayDays.toString(),
-                    style = MaterialTheme.typography.displayLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 68.sp,
-                        lineHeight = 70.sp
-                    ),
-                    color = Color.White
-                )
-                Spacer(Modifier.size(10.dp))
-                Text(
-                    text = when (item.state) {
-                        CountdownCalculator.DayState.TODAY -> "就是今天"
-                        CountdownCalculator.DayState.ELAPSED -> "天"
-                        CountdownCalculator.DayState.PAST -> "天前"
-                        CountdownCalculator.DayState.FUTURE -> "天后"
+                    text = if (item.mode == CountdownMode.COUNTUP) {
+                        "始于 " + item.event.targetLocalDate.formatFull()
+                    } else {
+                        "目标 " + item.event.targetLocalDate.formatFull() +
+                            " " + item.event.targetLocalDate.formatWeek()
                     },
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.White.copy(alpha = 0.95f),
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
-                Spacer(Modifier.weight(1f))
-                Text(
-                    text = item.event.targetLocalDate.formatFull(),
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.labelSmall,
                     color = Color.White.copy(alpha = 0.9f),
-                    modifier = Modifier.padding(bottom = 14.dp)
+                    maxLines = 1
                 )
             }
         }

@@ -64,9 +64,20 @@ if ($wmSize -match '(\d+)x(\d+)') { $screenW = [int]$Matches[1]; $screenH = [int
 Write-Host "屏幕: $screenW x $screenH, $wmDensity, font_scale=$fontScale" -ForegroundColor DarkGray
 
 # ---------- 截图 ----------
+# 注意：不能用 PowerShell 的 `>` 重定向抓二进制 —— 它会做文本转换，写出来的
+# PNG 会损坏（大小看着正常，但任何图片库都读不了）。必须走 cmd 的原样重定向，
+# 且落到纯 ASCII 的临时路径（adb 写不了中文路径），最后校验 PNG 魔数。
 $shot = Join-Path $outDir 'screen.png'
-& $adb -s $Serial exec-out screencap -p > $shot
-if (Test-Path $shot) { Write-Host "截图: $shot ($([math]::Round((Get-Item $shot).Length/1KB))KB)" -ForegroundColor Cyan }
+$rawBin = Join-Path $env:TEMP 'dsh_screen_raw.bin'
+Remove-Item -Force $rawBin -ErrorAction SilentlyContinue
+cmd /c "`"$adb`" -s $Serial exec-out screencap -p > `"$rawBin`"" | Out-Null
+if (-not (Test-Path $rawBin)) { throw '截图失败：没有产出文件' }
+$bytes = [System.IO.File]::ReadAllBytes($rawBin)
+$ok = $bytes.Length -gt 8 -and $bytes[0] -eq 0x89 -and $bytes[1] -eq 0x50 -and
+      $bytes[2] -eq 0x4E -and $bytes[3] -eq 0x47
+if (-not $ok) { throw "截图数据不是合法 PNG（前 4 字节：$($bytes[0..3] | ForEach-Object { '{0:X2}' -f $_ })）" }
+[System.IO.File]::WriteAllBytes($shot, $bytes)
+Write-Host "截图: $shot ($([math]::Round($bytes.Length/1KB))KB)" -ForegroundColor Cyan
 
 # ---------- View 层级 ----------
 # 注意：adb pull 在 Windows 上无法写入含非 ASCII 字符的路径（本项目在「新建文件夹」下），

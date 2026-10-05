@@ -105,7 +105,11 @@ fun EventCard(
             defaultElevation = if (event.pinned) 6.dp else 2.dp
         ),
         colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            // 必须是不透明色。
+            // 之前用 surfaceVariant.copy(alpha = 0.5f) 导致真机上出现"双层卡片"观感：
+            // ElevatedCard 的阴影画在容器矩形上，半透明背景又让页面渐变与下层透出来，
+            // 叠加后看起来像灰底上浮着一块内容。Roborazzi 的纯色背景渲染不出这个问题。
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         )
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
@@ -229,6 +233,9 @@ fun EventCard(
                 Spacer(Modifier.height(if (onImage) 10.dp else 12.dp))
 
                 // ============ 天数主视觉 ============
+                // 数字与"单位"一行；日期另起一行。
+                // 之前把"数字 + 日期"挤在同一行，在 360dp 宽的手机上
+                // （例如 1260px / 560dpi）日期会被折成两行，非常难看。
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
                         text = item.displayDays.toString(),
@@ -263,43 +270,40 @@ fun EventCard(
                             )
                         }
                     }
+                }
 
-                    Spacer(Modifier.weight(1f))
+                Spacer(Modifier.height(4.dp))
 
-                    // 正计日：日期区标注"始于"；倒计日：标注目标日
-                    Column(horizontalAlignment = Alignment.End) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Outlined.Event,
-                                contentDescription = null,
-                                tint = secondaryText,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                text = if (isCountUp) {
-                                    "始于 " + event.targetLocalDate.formatFull()
-                                } else {
-                                    event.targetLocalDate.formatFull()
-                                },
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = secondaryText
-                            )
-                        }
-                        Text(
-                            text = event.targetLocalDate.formatWeek(),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = secondaryText
-                        )
-                    }
+                // 日期行：整行可用宽度，不会再被数字挤压折行
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Outlined.Event,
+                        contentDescription = null,
+                        tint = secondaryText,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = if (isCountUp) {
+                            "始于 " + event.targetLocalDate.formatFull() +
+                                " " + event.targetLocalDate.formatWeek()
+                        } else {
+                            "目标 " + event.targetLocalDate.formatFull() +
+                                " " + event.targetLocalDate.formatWeek()
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = secondaryText,
+                        maxLines = 1
+                    )
                 }
 
                 if (!event.note.isNullOrBlank()) {
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(6.dp))
                     Text(
                         text = event.note,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = secondaryText
+                        color = secondaryText,
+                        maxLines = 2
                     )
                 }
 
