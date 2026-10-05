@@ -104,10 +104,6 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
-
-        // 把导出的 Room schema 路径传给 instrumented test，
-        // 供 MigrationTestHelper 校验 1->2 迁移（见 CountdownMigrationTest）
-        testInstrumentationRunnerArguments["room.schemaLocation"] = "$projectDir/schemas"
     }
 
     testOptions {
@@ -188,10 +184,21 @@ android {
     }
 }
 
-// Room 导出 schema，便于版本迁移与测试
+/**
+ * Room schema 的两件相关配置：
+ *
+ * 1) 导出：用 KSP 参数把 schema JSON 落到 app/schemas/（这些文件必须提交进仓库，
+ *    它们既是迁移的权威记录，也是 MigrationTestHelper 的输入）
+ *
+ * 2) 打包：MigrationTestHelper 在设备上是从 **assets** 里读 schema 的。
+ *    这里把 app/schemas 加进 androidTest 的 assets，否则真机跑迁移测试会
+ *    因为读不到 schema 直接失败（这正是这个测试长期没被验证过的原因）。
+ */
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
+
+android.sourceSets.getByName("androidTest").assets.srcDir("$projectDir/schemas")
 
 /**
  * 把实际生效的签名方式打在构建日志里，避免"以为用正式签名了其实还是 debug"。

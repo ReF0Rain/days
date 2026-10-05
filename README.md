@@ -226,6 +226,58 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb install -r app/build/outputs/apk/release/app-release.apk
 ```
 
+## 真机测试（不需要 Android Studio）
+
+本机装了便携版 SDK，里面的 `adb` 可以直接用。有一个脚本把整个流程包好了：
+
+```powershell
+# 1) 无线调试配对步骤（手机会显示配对码）
+.\scripts\device-test.ps1 -Pair
+
+# 2) 看设备是否就绪
+.\scripts\device-test.ps1 -Action devices
+
+# 3) 装包 + 跑真机测试（含数据库迁移测试）+ 抓日志
+.\scripts\device-test.ps1 -Action all -LogSeconds 90
+
+# 只抓日志（复现问题时最有用）
+.\scripts\device-test.ps1 -Action log -LogSeconds 120
+```
+
+脚本会：自动定位 adb 与 JDK、构建 `app-debug.apk` 与 `app-debug-androidTest.apk`、
+安装到设备、跑 `CountdownMigrationTest`、抓 logcat 并把崩溃/异常行摘出来直接打在屏幕上。
+
+### 手动命令（脚本做什么）
+
+```bash
+# 连接
+adb pair <手机显示的IP:配对端口>      # 输入 6 位配对码
+adb connect <手机显示的IP:调试端口>
+adb devices                            # 状态要是 device
+
+# 安装
+adb install -r -t app/build/outputs/apk/debug/app-debug.apk
+adb install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+
+# 跑迁移测试
+adb shell am instrument -w \
+  -e class com.example.countdown.data.CountdownMigrationTest \
+  com.example.countdown.debug.test/androidx.test.runner.AndroidJUnitRunner
+
+# 抓日志（先按需复现问题）
+adb logcat -c && adb logcat -v threadtime | Select-String "countdown|FATAL|AndroidRuntime"
+```
+
+> **关于迁移测试的 schema**：`MigrationTestHelper` 在设备上是从 APK 的 **assets** 读 schema 的。
+> 只配 `ksp { arg("room.schemaLocation", ...) }` 是不够的 —— schema 不会进 APK，真机上测试
+> 会因为读不到 schema 直接失败（这个测试因此长期没被真正验证过）。
+> 现在通过 `android.sourceSets["androidTest"].assets.srcDir("$projectDir/schemas")` 显式打包，
+> 可用下面的命令自查：
+> ```bash
+> # 应能看到 assets/<数据库类名>/<版本>.json
+> unzip -l app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk | grep schemas
+> ```
+
 ## 说明
 
 - **剩余天数**：`ChronoUnit.DAYS.between(today, target)`，今天到期显示 `0 / 就是今天`。
