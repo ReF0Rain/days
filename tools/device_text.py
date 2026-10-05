@@ -46,6 +46,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("serial", nargs="?", default=None)
     ap.add_argument("--dump-raw", action="store_true", help="只保存 hierarchy.xml 路径")
+    ap.add_argument("--switches", action="store_true",
+                    help="只列出 Switch/CheckBox 的中心坐标与 checked 状态（用于 UI 自动化点击）")
+    ap.add_argument("--find", default=None, help="只列出 text 或 content-desc 包含该子串的节点")
     args = ap.parse_args()
 
     serial = pick_serial(args.serial)
@@ -68,6 +71,49 @@ def main():
         return 0
 
     xml = open(xml_path, encoding="utf-8", errors="replace").read()
+
+    # --switches：给 UI 自动化用，输出可直接拿来 input tap 的坐标
+    if args.switches:
+        found = False
+        for m in NODE_RE.finditer(xml):
+            tag = m.group(0)
+            if "Switch" not in tag and "CheckBox" not in tag:
+                continue
+            b = BOUNDS_RE.search(tag)
+            if not b:
+                continue
+            x1, y1, x2, y2 = (int(b.group(i)) for i in range(1, 5))
+            checked = re.search(r'checked="(\w+)"', tag)
+            desc = DESC_RE.search(tag)
+            print("center=({},{}) checked={} size={}x{} desc={}".format(
+                (x1 + x2) // 2, (y1 + y2) // 2,
+                checked.group(1) if checked else "?",
+                x2 - x1, y2 - y1,
+                desc.group(1) if desc else ""))
+            found = True
+        if not found:
+            print("当前界面没有 Switch/CheckBox")
+        return 0
+
+    # --find：定位某个文字/描述的坐标
+    if args.find:
+        needle = args.find
+        for m in NODE_RE.finditer(xml):
+            tag = m.group(0)
+            t = TEXT_RE.search(tag)
+            d = DESC_RE.search(tag)
+            text = (t.group(1) if t else "")
+            desc = (d.group(1) if d else "")
+            if needle not in text and needle not in desc:
+                continue
+            b = BOUNDS_RE.search(tag)
+            if not b:
+                continue
+            x1, y1, x2, y2 = (int(b.group(i)) for i in range(1, 5))
+            print("center=({},{}) text={!r} desc={!r} size={}x{}".format(
+                (x1 + x2) // 2, (y1 + y2) // 2, text, desc, x2 - x1, y2 - y1))
+        return 0
+
     screen = None
     m = re.search(r'bounds="\[0,0\]\[(\d+),(\d+)\]"', xml)
     if m:

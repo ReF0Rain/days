@@ -2,6 +2,7 @@ package com.example.countdown.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -156,15 +157,15 @@ fun EventListScreen(
                 )
 
                 else -> {
-                    // 置顶事件排最前（仅在默认排序下生效）
-                    val ordered = if (state.sortOrder == SortOrder.BY_REMAINING_DAYS) {
-                        state.items.sortedByDescending { it.event.pinned }
-                    } else {
+                    // 顶部 Hero 只用于置顶事件。
+                    // 没有置顶时不再自动拿第一条来撑场面 —— 那样会白占顶部一大块空间，
+                    // 而且那个事件在下面的列表里还会出现一次，显得重复。
+                    val hero = state.pinnedItem
+                    val listItems = if (hero == null) {
                         state.items
+                    } else {
+                        state.items.filterNot { it.event.id == hero.event.id }
                     }
-                    val hero = state.pinnedItem ?: ordered.firstOrNull()
-                    // Hero 已经展示过的那个事件就不再在列表里重复出现（否则同一个事件出现两次）
-                    val listItems = ordered.filterNot { it.event.id == hero?.event?.id }
 
                     Column(modifier = Modifier.fillMaxSize()) {
                         if (hero != null) {
@@ -275,6 +276,9 @@ private fun HeroCountdownCard(
                 ),
                 shape = RoundedCornerShape(26.dp)
             )
+            // 必须可点击：之前重写这块时漏了 clickable，导致点 Hero 没有任何反应
+            .clip(RoundedCornerShape(26.dp))
+            .clickable(onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 18.dp)
     ) {
         Column(
