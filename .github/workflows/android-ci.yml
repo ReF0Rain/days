@@ -139,7 +139,9 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      # 把 base64 的 keystore 还原成文件；Secret 缺失时跳过并给出警告
+      # 把 base64 的 keystore 还原成文件；Secret 缺失时跳过并给出警告。
+      # 注意：不做 `echo "$SECRET" | base64 -d` —— Secret 里如果混入换行/空格/BOM，
+      # base64 会直接报 "invalid input" 让整个发版失败。这里先清洗再解码，并校验文件确实是 keystore。
       - name: Decode signing keystore
         id: keystore
         env:
@@ -151,9 +153,47 @@ jobs:
             echo "signed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+
+          echo "Secret 原始长度: ${#KEYSTORE_BASE64}"
+          # 去掉所有空白（换行/回车/空格/制表符）和 BOM
+          CLEAN=$(printf '%s' "$KEYSTORE_BASE64" | tr -d '[:space:]\357\273\277')
+          echo "清洗后长度: ${#CLEAN}"
+          if [ ${#KEYSTORE_BASE64} -eq ${#CLEAN} ]; then
+            echo "Secret 干净，无多余空白"
+          else
+            echo "::notice::Secret 里混入了空白字符，已自动清除（建议重新粘贴以避免歧义）"
+          fi
+
           mkdir -p keystore
-          echo "$KEYSTORE_BASE64" | base64 --decode > keystore/countdown.jks
-          ls -l keystore/countdown.jks
+          if ! printf '%s' "$CLEAN" | base64 --decode > keystore/countdown.jks 2>/dev/null; then
+            echo "::error::base64 解码失败。参考值：正确内容应为 3668 个字符、解码后 2750 字节。"
+            echo "::error::请重新执行: Get-Content keystore\\keystore.base64.txt | Set-Clipboard 后覆盖粘贴 KEYSTORE_BASE64"
+            exit 1
+          fi
+
+          SIZE=$(stat -c%s keystore/countdown.jks)
+          echo "解码后大小: ${SIZE} bytes"
+          if [ "$SIZE" -lt 100 ]; then
+            echo "::error::解码结果只有 ${SIZE} 字节，Secret 内容不完整。"
+            exit 1
+          fi
+
+          # 校验 keystore 真的能被口令打开。
+          # keytool 一般在 PATH 里（actions/setup-java 会加），但这里仍带 JAVA_HOME 兜底，
+          # 且 keytool 本身不可用时只警告不中断，避免首次发版卡在环境细节上。
+          KEYTOOL=$(command -v keytool || true)
+          if [ -z "$KEYTOOL" ] && [ -n "${JAVA_HOME:-}" ] && [ -x "${JAVA_HOME}/bin/keytool" ]; then
+            KEYTOOL="${JAVA_HOME}/bin/keytool"
+          fi
+          if [ -z "$KEYTOOL" ]; then
+            echo "::warning::找不到 keytool，跳过 keystore 口令校验"
+          elif "$KEYTOOL" -list -keystore keystore/countdown.jks \
+                 -storepass "${{ secrets.KEYSTORE_PASSWORD }}" >/dev/null 2>&1; then
+            echo "keystore 校验通过（口令正确）"
+          else
+            echo "::error::keystore 无法用 KEYSTORE_PASSWORD 打开，请检查该 Secret 是否与实际口令一致。"
+            exit 1
+          fi
           echo "signed=true" >> "$GITHUB_OUTPUT"
 
       - name: Run unit tests
