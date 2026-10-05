@@ -112,8 +112,9 @@ android {
 
     testOptions {
         animationsDisabled = true
-        // androidTest 里的迁移测试要访问 internal 成员
         unitTests.isReturnDefaultValues = true
+        // Robolectric 渲染 Compose 需要访问真实的 res 资源
+        unitTests.isIncludeAndroidResources = true
     }
 
     signingConfigs {
@@ -247,6 +248,15 @@ dependencies {
 
     // ---------- 测试 ----------
     testImplementation(libs.junit)
+    // 截图测试：Robolectric 跑 Compose，Roborazzi 把画面导出成 PNG，不需要设备/模拟器
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
+    testImplementation(libs.roborazzi.junit.rule)
+    testImplementation(libs.androidx.ui.test.junit4)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testRuntimeOnly(libs.androidx.ui.test.manifest)
+
     // Room 迁移测试需要：MigrationTestHelper + 导出的 schema
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.test.core)

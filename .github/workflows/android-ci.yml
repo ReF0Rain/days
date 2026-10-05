@@ -63,8 +63,22 @@ jobs:
           ./gradlew --version
           ./gradlew printSigningInfo -q
 
-      - name: Run unit tests
-        run: ./gradlew :app:testDebugUnitTest --stacktrace
+      # 单元测试 + 截图测试。
+      # 注意：必须带 -Droborazzi.test.record=true —— Roborazzi 默认不写文件；
+      # 而且它产出的 PNG 不在 Gradle 的 output 声明里，一旦 test 任务被判定
+      # UP-TO-DATE 就直接跳过、什么图都不会生成。
+      - name: Run unit tests and screenshots
+        run: ./gradlew :app:testDebugUnitTest --stacktrace -Droborazzi.test.record=true
+
+      # 上传卡片渲染图，供人工核对 UI 改动（这解决了"看不到界面"的问题）
+      - name: Upload UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-screenshots
+          path: app/build/outputs/roborazzi/*.png
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --stacktrace

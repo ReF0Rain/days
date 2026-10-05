@@ -176,6 +176,16 @@ class EventEditViewModel(
     private val _saved = MutableStateFlow(false)
     val saved: StateFlow<Boolean> = _saved.asStateFlow()
 
+    /**
+     * 是否正在保存。
+     *
+     * 需要一个显式的防重入标志：保存是异步的，而页面要等 saved 变 true 才退出。
+     * 在这段窗口里如果用户连点右上角 ✓ 或底部保存按钮，[save] 会被调用多次 ——
+     * 新建时会插入多条一模一样的记录（用户看到的就是"列表里重复出现同一个事件"）。
+     */
+    private val _saving = MutableStateFlow(false)
+    val saving: StateFlow<Boolean> = _saving.asStateFlow()
+
     /** UI 消费完"保存成功"事件后复位 */
     fun consumeSaved() {
         _saved.value = false
@@ -193,40 +203,48 @@ class EventEditViewModel(
         notifyEnabled: Boolean,
         pinned: Boolean
     ) {
-        viewModelScope.launch {
-            val epochDay = targetDate.toEpochDay()
-            val cleanNote = note?.takeIf { it.isNotBlank() }
-            val cleanBg = backgroundUri?.takeIf { it.isNotBlank() }
+        // 防重入：已经在保存或已经保存成功，就直接忽略这次点击
+        if (_saving.value || _saved.value) return
+        _saving.value = true
 
-            if (id == 0L) {
-                repository.insert(
-                    CountdownEvent(
-                        title = title.trim(),
-                        targetDate = epochDay,
-                        mode = mode,
-                        note = cleanNote,
-                        backgroundUri = cleanBg,
-                        pinned = pinned,
-                        notifyEnabled = notifyEnabled
-                    )
-                )
-            } else {
-                repository.getById(id)?.let { existing ->
-                    repository.update(
-                        existing.copy(
+        viewModelScope.launch {
+            try {
+                val epochDay = targetDate.toEpochDay()
+                val cleanNote = note?.takeIf { it.isNotBlank() }
+                val cleanBg = backgroundUri?.takeIf { it.isNotBlank() }
+
+                if (id == 0L) {
+                    repository.insert(
+                        CountdownEvent(
                             title = title.trim(),
                             targetDate = epochDay,
                             mode = mode,
                             note = cleanNote,
                             backgroundUri = cleanBg,
                             pinned = pinned,
-                            notifyEnabled = notifyEnabled,
-                            updatedAt = System.currentTimeMillis()
+                            notifyEnabled = notifyEnabled
                         )
                     )
+                } else {
+                    repository.getById(id)?.let { existing ->
+                        repository.update(
+                            existing.copy(
+                                title = title.trim(),
+                                targetDate = epochDay,
+                                mode = mode,
+                                note = cleanNote,
+                                backgroundUri = cleanBg,
+                                pinned = pinned,
+                                notifyEnabled = notifyEnabled,
+                                updatedAt = System.currentTimeMillis()
+                            )
+                        )
+                    }
                 }
+                _saved.value = true
+            } finally {
+                _saving.value = false
             }
-            _saved.value = true
         }
     }
 

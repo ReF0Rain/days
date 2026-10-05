@@ -43,6 +43,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -95,7 +96,10 @@ fun EventCard(
     }
 
     ElevatedCard(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            // 截图测试用它作为捕获目标
+            .testTag("event_card"),
         shape = RoundedCornerShape(22.dp),
         elevation = CardDefaults.elevatedCardElevation(
             defaultElevation = if (event.pinned) 6.dp else 2.dp

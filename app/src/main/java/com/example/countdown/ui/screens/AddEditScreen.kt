@@ -137,6 +137,7 @@ fun AddEditScreen(
 
     val snackbarHostState = remember { SnackbarHostState() }
     val savedState by viewModel.saved.collectAsStateWithLifecycle()
+    val savingState by viewModel.saving.collectAsStateWithLifecycle()
 
     // ---------------- Android 13 通知权限 ----------------
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -225,6 +226,8 @@ fun AddEditScreen(
 
     // 局部函数必须声明在调用点之前（Kotlin 局部函数不提升）
     fun submit() {
+        // 保存中或已保存成功就忽略，避免连点插入多条相同记录
+        if (savingState || savedState) return
         if (title.isBlank()) {
             titleError = true
             scope.launch {
@@ -274,11 +277,22 @@ fun AddEditScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { submit() }) {
-                        Icon(
-                            imageVector = Icons.Filled.Check,
-                            contentDescription = stringResource(R.string.action_save)
-                        )
+                    IconButton(
+                        onClick = { submit() },
+                        // 保存中禁用，避免连点插入重复记录
+                        enabled = !savingState && !savedState
+                    ) {
+                        if (savingState) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Filled.Check,
+                                contentDescription = stringResource(R.string.action_save)
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -639,11 +653,20 @@ fun AddEditScreen(
                 Button(
                     onClick = { submit() },
                     shape = RoundedCornerShape(16.dp),
+                    enabled = !savingState && !savedState,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp)
                 ) {
-                    Icon(Icons.Filled.Save, contentDescription = null)
+                    if (savingState) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    } else {
+                        Icon(Icons.Filled.Save, contentDescription = null)
+                    }
                     Spacer(Modifier.width(8.dp))
                     Text(stringResource(R.string.action_save))
                 }

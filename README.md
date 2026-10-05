@@ -248,6 +248,23 @@ adb install -r app/build/outputs/apk/release/app-release.apk
 | --- | --- |
 | 每日通知时间 | WorkManager 周期任务，Doze 下可能被推迟，不保证精确 9:00 |
 | 未做真机验证 | 迁移测试 `CountdownMigrationTest` 需要真机/模拟器，尚未运行过 |
-| 无 UI 自动化测试 | 界面改动只能靠安装后人工确认（这是"正计日看不出区别"那次问题的根因） |
 | 排序方式不持久化 | 「按天数 / 按创建时间」切换后重启会回到默认值 |
 | 两个 APK 并存 | debug 包 `applicationId` 带 `.debug` 后缀，会和 release 包装成两个图标 |
+
+### UI 截图测试
+
+界面改动不再只靠"装到手机上看"。`EventCardScreenshotTest` 用 Robolectric + Roborazzi
+在 **JVM 上**渲染卡片并导出 PNG，不需要设备或模拟器：
+
+```bash
+# 必须带 -Droborazzi.test.record=true：Roborazzi 默认不写文件
+./gradlew :app:testDebugUnitTest -Droborazzi.test.record=true
+# 产物：app/build/outputs/roborazzi/*.png
+```
+
+CI 会把图片作为 `ui-screenshots` artifact 上传，本地也能直接打开对比。
+
+> 两个坑值得记下来：
+> 1. Roborazzi 默认只在"记录模式"下写文件，不加 `-Droborazzi.test.record=true` 会静默无输出；
+> 2. 它产出的 PNG 不在 Gradle 的 output 声明里，一旦 `testDebugUnitTest` 被判定
+>    UP-TO-DATE 就会整段跳过、什么都不生成 —— 所以要用 `--rerun-tasks` 或先清缓存。

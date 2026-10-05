@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  仅 debug 构建使用的 manifest 补充。
+
+  为什么需要：Compose 的 JVM 截图测试（Robolectric）要通过一个宿主 Activity 承载
+  composition，而 androidx.compose.ui:ui-test-manifest 提供的声明不会进入
+  Robolectric 读取的合并 manifest，于是报
+    "Unable to resolve activity for Intent { ... cmp=.../androidx.activity.ComponentActivity }"
+
+  放在 src/debug/ 而不是 src/main/，这样 release 包不会包含一个仅测试用的 Activity。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application>
+        <activity
+            android:name="androidx.activity.ComponentActivity"
+            android:exported="false"
+            tools:ignore="MissingClass" />
+    </application>
+
+</manifest>

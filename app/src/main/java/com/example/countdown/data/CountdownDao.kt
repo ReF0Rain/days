@@ -39,4 +39,23 @@ interface CountdownDao {
 
     @Query("SELECT COUNT(*) FROM events")
     suspend fun count(): Int
+
+    /**
+     * 找出重复事件的 id：同标题 + 同日期 + 同模式视为重复，每组保留 id 最小的那条。
+     *
+     * 用途：早期版本的保存按钮没有防重入，连点会插入多条完全相同的记录，
+     * 用户看到的就是"列表里同一个事件出现两次"。启动时清一次。
+     */
+    @Query(
+        """
+        SELECT id FROM events
+        WHERE id NOT IN (
+            SELECT MIN(id) FROM events GROUP BY title, target_date, mode
+        )
+        """
+    )
+    suspend fun findDuplicateIds(): List<Long>
+
+    @Query("DELETE FROM events WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>): Int
 }
