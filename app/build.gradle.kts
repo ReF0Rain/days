@@ -104,6 +104,16 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
+
+        // 把导出的 Room schema 路径传给 instrumented test，
+        // 供 MigrationTestHelper 校验 1->2 迁移（见 CountdownMigrationTest）
+        testInstrumentationRunnerArguments["room.schemaLocation"] = "$projectDir/schemas"
+    }
+
+    testOptions {
+        animationsDisabled = true
+        // androidTest 里的迁移测试要访问 internal 成员
+        unitTests.isReturnDefaultValues = true
     }
 
     signingConfigs {
@@ -234,9 +244,15 @@ dependencies {
     // ---------- Glance 桌面小组件 ----------
     implementation(libs.androidx.glance.appwidget)
 
+    // ---------- 图片加载（自定义背景图） ----------
+    implementation(libs.coil.compose)
+
     // ---------- 测试 ----------
     testImplementation(libs.junit)
+    // Room 迁移测试需要：MigrationTestHelper + 导出的 schema
     androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.room.testing)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
 

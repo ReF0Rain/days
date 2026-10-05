@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat
 import com.example.countdown.MainActivity
 import com.example.countdown.data.CountdownCalculator
 import com.example.countdown.data.CountdownEvent
+import com.example.countdown.data.CountdownMode
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -85,26 +86,41 @@ object CountdownNotifications {
     // 每日更新
     // ------------------------------------------------------------------
 
-    /** 单个事件的剩余天数文案 */
-    fun daysText(event: CountdownEvent): String {
-        val days = CountdownCalculator.daysUntil(event.targetLocalDate)
-        return when {
-            days > 0L -> "还有 $days 天"
-            days == 0L -> "就是今天"
-            else -> "已过去 ${-days} 天"
+    /** 单个事件的天数文案，区分倒计日与正计日 */
+    fun daysText(event: CountdownEvent): String =
+        when (event.mode) {
+            CountdownMode.COUNTUP -> {
+                val d = CountdownCalculator.elapsedDays(event.targetLocalDate)
+                if (d == 0L) "就是今天" else "已经过去 $d 天"
+            }
+            CountdownMode.COUNTDOWN -> {
+                val d = CountdownCalculator.daysUntil(event.targetLocalDate)
+                when {
+                    d > 0L -> "还有 $d 天"
+                    d == 0L -> "就是今天"
+                    else -> "已过去 ${-d} 天"
+                }
+            }
         }
-    }
 
     /**
      * 刷新每日通知：把所有开启了通知的事件汇总成一条通知。
-     * 已过期的事件不再入选；若没有任何可通知的事件，则撤销旧通知。
+     *
+     * 入选规则：
+     *  - 正计日：始终入选（每天都在累加，正是它要提醒的内容）
+     *  - 倒计日：只保留还没过期的，过期的不再打扰
+     *
+     * 排序按 sortKey 升序，与列表页保持一致的"紧迫度"口径。
      */
     fun updateDailyNotification(context: Context, events: List<CountdownEvent>) {
         val today = LocalDate.now()
         val actionable = events
             .filter { it.notifyEnabled }
-            .filter { CountdownCalculator.daysUntil(it.targetLocalDate, today) >= 0L }
-            .sortedBy { CountdownCalculator.daysUntil(it.targetLocalDate, today) }
+            .filter { event ->
+                event.mode == CountdownMode.COUNTUP ||
+                    CountdownCalculator.daysUntil(event.targetLocalDate, today) >= 0L
+            }
+            .sortedBy { CountdownCalculator.sortKey(it, today) }
 
         if (actionable.isEmpty() || !hasPermission(context)) {
             cancelDailyNotification(context)
@@ -113,12 +129,7 @@ object CountdownNotifications {
 
         val manager = NotificationManagerCompat.from(context)
         val nearest = actionable.first()
-        val nearestDays = CountdownCalculator.daysUntil(nearest.targetLocalDate, today)
-
-        val title = when {
-            nearestDays == 0L -> "${nearest.title} · 就是今天"
-            else -> "${nearest.title} · 还有 $nearestDays 天"
-        }
+        val title = "${nearest.title} · ${daysText(nearest)}"
 
         val lines = actionable.take(6).map { event ->
             "· ${event.title}：${daysText(event)}（${event.targetLocalDate.format(dateFormatter)}）"

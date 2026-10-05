@@ -5,7 +5,9 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,15 +17,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.Button
@@ -38,6 +45,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
@@ -49,25 +60,33 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
 import com.example.countdown.R
+import com.example.countdown.data.CountdownMode
 import com.example.countdown.notification.DailyUpdateScheduler
 import com.example.countdown.ui.CountdownViewModelFactory
 import com.example.countdown.ui.EventEditViewModel
 import com.example.countdown.ui.components.formatFull
 import com.example.countdown.ui.components.formatWeek
+import com.example.countdown.util.BackgroundImageStore
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
@@ -75,7 +94,6 @@ import java.time.ZoneOffset
 
 /**
  * 新建 / 编辑页面。
- *
  * [eventId] 为 0L 表示新建，否则编辑对应记录。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -92,10 +110,13 @@ fun AddEditScreen(
 
     val isNew = eventId == 0L
 
-    // ---------------- 表单状态 ----------------
     var title by remember { mutableStateOf("") }
     var targetDate by remember { mutableStateOf(LocalDate.now().plusDays(1)) }
+    var mode by remember { mutableStateOf(CountdownMode.COUNTDOWN) }
     var note by remember { mutableStateOf("") }
+    var backgroundUri by remember { mutableStateOf<String?>(null) }
+    var backgroundDim by remember { mutableFloatStateOf(0.35f) }
+    var originalBackgroundUri by remember { mutableStateOf<String?>(null) }
     var notifyEnabled by remember { mutableStateOf(true) }
     var pinned by remember { mutableStateOf(false) }
     var titleError by remember { mutableStateOf(false) }
@@ -121,13 +142,35 @@ fun AddEditScreen(
         }
     }
 
+    // ---------------- 图片选择（系统照片选择器，不需要存储权限） ----------------
+    val imagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { picked ->
+        if (picked != null) {
+            val stored = BackgroundImageStore.import(context, picked)
+            if (stored != null) {
+                backgroundUri = stored
+            } else {
+                scope.launch {
+                    snackbarHostState.showSnackbar(
+                        context.getString(R.string.background_import_failed)
+                    )
+                }
+            }
+        }
+    }
+
     // ---------------- 读取既有数据 ----------------
     LaunchedEffect(eventId) {
         if (!isNew) {
             viewModel.load(eventId)?.let { event ->
                 title = event.title
                 targetDate = event.targetLocalDate
+                mode = event.mode
                 note = event.note.orEmpty()
+                backgroundUri = event.backgroundUri
+                originalBackgroundUri = event.backgroundUri
+                backgroundDim = event.backgroundDim
                 notifyEnabled = event.notifyEnabled
                 pinned = event.pinned
             }
@@ -145,7 +188,7 @@ fun AddEditScreen(
         }
     }
 
-    // ---------------- 校验 + 保存（局部函数必须声明在调用点之前） ----------------
+    // 局部函数必须声明在调用点之前（Kotlin 局部函数不提升）
     fun submit() {
         if (title.isBlank()) {
             titleError = true
@@ -158,14 +201,21 @@ fun AddEditScreen(
             id = eventId,
             title = title,
             targetDate = targetDate,
+            mode = mode,
             note = note,
+            backgroundUri = backgroundUri,
             notifyEnabled = notifyEnabled && hasNotificationPermission(context),
             pinned = pinned
         )
+        // 换了背景图就删掉旧文件，避免内部存储里堆积无主图片
+        if (originalBackgroundUri != null && originalBackgroundUri != backgroundUri) {
+            BackgroundImageStore.deleteIfUnused(context, originalBackgroundUri)
+        }
     }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
@@ -174,7 +224,8 @@ fun AddEditScreen(
                         text = stringResource(
                             if (isNew) R.string.form_title_new else R.string.form_title_edit
                         ),
-                        style = MaterialTheme.typography.titleLarge
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
                     )
                 },
                 navigationIcon = {
@@ -216,6 +267,36 @@ fun AddEditScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
+                // ---------- 计时方式 ----------
+                SectionLabel(stringResource(R.string.field_mode))
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    SegmentedButton(
+                        selected = mode == CountdownMode.COUNTDOWN,
+                        onClick = { mode = CountdownMode.COUNTDOWN },
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+                    ) {
+                        Text(stringResource(R.string.mode_countdown))
+                    }
+                    SegmentedButton(
+                        selected = mode == CountdownMode.COUNTUP,
+                        onClick = { mode = CountdownMode.COUNTUP },
+                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
+                    ) {
+                        Text(stringResource(R.string.mode_countup))
+                    }
+                }
+                Text(
+                    text = stringResource(
+                        if (mode == CountdownMode.COUNTDOWN) R.string.mode_countdown_desc
+                        else R.string.mode_countup_desc
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+
+                Spacer(Modifier.height(20.dp))
+
                 // ---------- 事件名称 ----------
                 SectionLabel(stringResource(R.string.field_title))
                 OutlinedTextField(
@@ -227,6 +308,7 @@ fun AddEditScreen(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     isError = titleError,
+                    shape = RoundedCornerShape(14.dp),
                     placeholder = { Text(stringResource(R.string.field_title_hint)) },
                     supportingText = if (titleError) {
                         { Text(stringResource(R.string.error_title_required)) }
@@ -236,12 +318,18 @@ fun AddEditScreen(
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
                 )
 
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(16.dp))
 
-                // ---------- 目标日期 ----------
-                SectionLabel(stringResource(R.string.field_date))
+                // ---------- 日期 ----------
+                SectionLabel(
+                    stringResource(
+                        if (mode == CountdownMode.COUNTDOWN) R.string.field_date
+                        else R.string.field_date_countup
+                    )
+                )
                 Card(
                     modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
                     ),
@@ -278,6 +366,135 @@ fun AddEditScreen(
 
                 Spacer(Modifier.height(20.dp))
 
+                // ---------- 背景图 ----------
+                SectionLabel(stringResource(R.string.field_background))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        if (backgroundUri.isNullOrBlank()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Image,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Spacer(Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = stringResource(R.string.field_background),
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.field_background_desc),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(150.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                            ) {
+                                AsyncImage(
+                                    model = backgroundUri,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            Color.Black.copy(alpha = backgroundDim.coerceIn(0f, 0.85f))
+                                        )
+                                )
+                                Text(
+                                    text = "预览",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White,
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(8.dp)
+                                )
+                            }
+
+                            Spacer(Modifier.height(10.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Filled.Tune,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = "文字清晰度",
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Slider(
+                                    value = backgroundDim,
+                                    onValueChange = { backgroundDim = it },
+                                    valueRange = 0f..0.85f,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = {
+                                    imagePicker.launch(
+                                        PickVisualMediaRequest(
+                                            ActivityResultContracts.PickVisualMedia.ImageOnly
+                                        )
+                                    )
+                                }
+                            ) {
+                                Icon(Icons.Filled.Image, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    stringResource(
+                                        if (backgroundUri.isNullOrBlank()) R.string.action_pick_image
+                                        else R.string.action_change_image
+                                    )
+                                )
+                            }
+                            if (!backgroundUri.isNullOrBlank()) {
+                                TextButton(
+                                    onClick = {
+                                        BackgroundImageStore.deleteIfUnused(context, backgroundUri)
+                                        backgroundUri = null
+                                    }
+                                ) {
+                                    Icon(Icons.Filled.Delete, contentDescription = null)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(stringResource(R.string.action_remove_image))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(20.dp))
+
                 // ---------- 备注 ----------
                 SectionLabel(stringResource(R.string.field_note))
                 OutlinedTextField(
@@ -285,7 +502,8 @@ fun AddEditScreen(
                     onValueChange = { note = it },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(120.dp),
+                        .height(110.dp),
+                    shape = RoundedCornerShape(14.dp),
                     placeholder = { Text(stringResource(R.string.field_note_hint)) },
                     maxLines = 4
                 )
@@ -306,7 +524,6 @@ fun AddEditScreen(
                     checked = notifyEnabled && hasNotificationPermission(context),
                     onCheckedChange = { checked ->
                         if (checked && needsNotificationPermission(context)) {
-                            // Android 13+ 首次开启需要运行时权限
                             permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                         } else {
                             notifyEnabled = checked
@@ -332,10 +549,11 @@ fun AddEditScreen(
                     onCheckedChange = { pinned = it }
                 )
 
-                Spacer(Modifier.height(32.dp))
+                Spacer(Modifier.height(28.dp))
 
                 Button(
                     onClick = { submit() },
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp)
@@ -406,6 +624,7 @@ private fun SwitchRow(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
         )

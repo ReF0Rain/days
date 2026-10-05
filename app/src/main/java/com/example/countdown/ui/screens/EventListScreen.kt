@@ -1,9 +1,11 @@
 package com.example.countdown.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
@@ -37,17 +40,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.countdown.R
+import com.example.countdown.data.CountdownCalculator
 import com.example.countdown.data.CountdownEvent
+import com.example.countdown.data.CountdownMode
 import com.example.countdown.ui.CountdownItem
 import com.example.countdown.ui.CountdownUiState
 import com.example.countdown.ui.SortOrder
 import com.example.countdown.ui.components.EventCard
+import com.example.countdown.ui.components.formatFull
 import com.example.countdown.ui.theme.CountdownTheme
+import java.time.LocalDate
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,15 +73,26 @@ fun EventListScreen(
 ) {
     var pendingDelete by remember { mutableStateOf<CountdownEvent?>(null) }
 
+    // 顶部主题色渐变：让页面不再是纯平铺底色，有层次感
+    val backgroundBrush = Brush.verticalGradient(
+        colors = listOf(
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+            MaterialTheme.colorScheme.background,
+            MaterialTheme.colorScheme.background
+        )
+    )
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = {
                     Column {
                         Text(
                             text = stringResource(R.string.list_title),
-                            style = MaterialTheme.typography.titleLarge
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
                         )
                         Text(
                             text = when (state.sortOrder) {
@@ -96,9 +118,7 @@ fun EventListScreen(
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         },
         floatingActionButton = {
@@ -110,43 +130,82 @@ fun EventListScreen(
             }
         }
     ) { innerPadding ->
-        when {
-            state.loading -> Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
-
-            state.isEmpty -> EmptyState(
-                onAddClick = onAddClick,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-            )
-
-            else -> LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // 置顶事件排在最前（仅在默认排序下生效）
-                val ordered = if (state.sortOrder == SortOrder.BY_REMAINING_DAYS) {
-                    state.items.sortedByDescending { it.event.pinned }
-                } else {
-                    state.items
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(backgroundBrush)
+                .padding(innerPadding)
+        ) {
+            when {
+                state.loading -> Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
                 }
 
-                items(items = ordered, key = { it.event.id }) { item ->
-                    EventCard(
-                        item = item,
-                        onEdit = { onEditClick(item.event) },
-                        onDelete = { pendingDelete = item.event }
-                    )
+                state.isEmpty -> EmptyState(
+                    onAddClick = onAddClick,
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                else -> {
+                    // 置顶事件排最前（仅在默认排序下生效）
+                    val ordered = if (state.sortOrder == SortOrder.BY_REMAINING_DAYS) {
+                        state.items.sortedByDescending { it.event.pinned }
+                    } else {
+                        state.items
+                    }
+                    val hero = state.pinnedItem ?: ordered.firstOrNull()
+
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(
+                            start = 16.dp,
+                            end = 16.dp,
+                            top = 4.dp,
+                            bottom = 96.dp
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        if (hero != null) {
+                            item(key = "hero") {
+                                HeroCountdownCard(
+                                    item = hero,
+                                    onClick = { onEditClick(hero.event) }
+                                )
+                            }
+                        }
+
+                        item(key = "section") {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "全部事件",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(Modifier.weight(1f))
+                                Text(
+                                    text = "${state.items.size} 个",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        items(items = ordered, key = { it.event.id }) { item ->
+                            EventCard(
+                                item = item,
+                                onEdit = { onEditClick(item.event) },
+                                onDelete = { pendingDelete = item.event }
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -173,6 +232,88 @@ fun EventListScreen(
                 }
             }
         )
+    }
+}
+
+/**
+ * 顶部 Hero 展示位：把最近/置顶的事件放大。
+ * 无背景图时用主题色渐变（保证任何情况下都有视觉重点）；
+ * 有背景图时直接复用 EventCard，保持形态一致。
+ */
+@Composable
+private fun HeroCountdownCard(
+    item: CountdownItem,
+    onClick: () -> Unit
+) {
+    if (item.event.hasBackground) {
+        EventCard(item = item, onEdit = onClick, onDelete = {})
+        return
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(190.dp)
+            .background(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.primary,
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.72f),
+                        MaterialTheme.colorScheme.secondary.copy(alpha = 0.85f)
+                    )
+                ),
+                shape = RoundedCornerShape(26.dp)
+            )
+            .padding(20.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = item.event.title,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Color.White,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = if (item.mode == CountdownMode.COUNTUP) "正计日" else "倒计日",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.9f)
+                )
+            }
+
+            Spacer(Modifier.weight(1f))
+
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = item.displayDays.toString(),
+                    style = MaterialTheme.typography.displayLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 68.sp,
+                        lineHeight = 70.sp
+                    ),
+                    color = Color.White
+                )
+                Spacer(Modifier.size(10.dp))
+                Text(
+                    text = when (item.state) {
+                        CountdownCalculator.DayState.TODAY -> "就是今天"
+                        CountdownCalculator.DayState.ELAPSED -> "天"
+                        CountdownCalculator.DayState.PAST -> "天前"
+                        CountdownCalculator.DayState.FUTURE -> "天后"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White.copy(alpha = 0.95f),
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = item.event.targetLocalDate.formatFull(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.9f),
+                    modifier = Modifier.padding(bottom = 14.dp)
+                )
+            }
+        }
     }
 }
 
@@ -225,22 +366,31 @@ private fun EventListScreenPreview() {
                         event = CountdownEvent(
                             id = 1L,
                             title = "结婚纪念日",
-                            targetDate = java.time.LocalDate.now().plusDays(128).toEpochDay(),
+                            targetDate = LocalDate.now().plusDays(128).toEpochDay(),
                             pinned = true
                         ),
+                        displayDays = 128L,
+                        state = CountdownCalculator.DayState.FUTURE,
                         remainingDays = 128L,
+                        elapsedDays = 0L,
                         totalDays = 200L,
-                        progress = 0.36f
+                        progress = 0.36f,
+                        sortValue = 128L
                     ),
                     CountdownItem(
                         event = CountdownEvent(
                             id = 2L,
-                            title = "项目交付",
-                            targetDate = java.time.LocalDate.now().plusDays(3).toEpochDay()
+                            title = "入职第一天",
+                            targetDate = LocalDate.now().minusDays(365).toEpochDay(),
+                            mode = CountdownMode.COUNTUP
                         ),
-                        remainingDays = 3L,
-                        totalDays = 30L,
-                        progress = 0.9f
+                        displayDays = 365L,
+                        state = CountdownCalculator.DayState.ELAPSED,
+                        remainingDays = -365L,
+                        elapsedDays = 365L,
+                        totalDays = -365L,
+                        progress = 1f,
+                        sortValue = -365L
                     )
                 ),
                 loading = false

@@ -71,11 +71,14 @@ private fun openAppIntent(context: Context): Intent =
         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
     }
 
-/** 小组件内容：置顶优先，其余按剩余天数升序，最多 4 条 */
+/** 小组件内容：置顶优先，其余按紧迫度升序，最多 4 条 */
 @Composable
 fun CountdownWidgetContent(allEvents: List<CountdownEvent>, context: Context) {
     val events = allEvents
-        .sortedWith(compareBy({ CountdownCalculator.daysUntil(it.targetLocalDate) }, { it.title }))
+        // 与列表页共用同一个 sortKey 口径（倒计日按剩余、正计日按已过天数取负）
+        .sortedWith(
+            compareBy({ CountdownCalculator.sortKey(it) }, { it.title })
+        )
         .sortedByDescending { it.pinned }
         .take(4)
 
@@ -117,21 +120,20 @@ fun CountdownWidgetContent(allEvents: List<CountdownEvent>, context: Context) {
 
 @Composable
 private fun WidgetRow(event: CountdownEvent) {
-    val days = CountdownCalculator.daysUntil(event.targetLocalDate)
-    val dayText = when {
-        days > 0L -> days.toString()
-        days == 0L -> "0"
-        else -> (-days).toString()
+    val display = CountdownCalculator.displayDays(event)
+    val dayText = display.days.toString()
+    // 正计日显示 "天"，倒计日按剩余/过期显示 "天后 / 天前"
+    val suffix = when (display.state) {
+        CountdownCalculator.DayState.FUTURE -> "天后"
+        CountdownCalculator.DayState.TODAY -> "今天"
+        CountdownCalculator.DayState.PAST -> "天前"
+        CountdownCalculator.DayState.ELAPSED -> "天"
     }
-    val suffix = when {
-        days > 0L -> "天后"
-        days == 0L -> "今天"
-        else -> "天前"
-    }
-    val accent = when {
-        days < 0L -> Color(0xFFC62828)
-        days == 0L -> Color(0xFFFFA000)
-        else -> Color(0xFF1565C0)
+    val accent = when (display.state) {
+        CountdownCalculator.DayState.PAST -> Color(0xFFC62828)
+        CountdownCalculator.DayState.TODAY -> Color(0xFFFFA000)
+        CountdownCalculator.DayState.ELAPSED -> Color(0xFF00796B)
+        CountdownCalculator.DayState.FUTURE -> Color(0xFF1565C0)
     }
 
     Row(

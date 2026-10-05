@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
 import com.example.countdown.data.CountdownCalculator
 import com.example.countdown.data.CountdownEvent
+import com.example.countdown.data.CountdownMode
 import com.example.countdown.data.CountdownRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -19,21 +20,33 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 
 /** 列表排序方式 */
 enum class SortOrder { BY_REMAINING_DAYS, BY_CREATED_TIME }
 
-/** 一条事件 + 其派生出来的展示数据 */
+/**
+ * 一条事件 + 派生出来的展示数据。
+ * UI 只依赖这个，不自己算天数，避免多处口径不一致。
+ */
 data class CountdownItem(
     val event: CountdownEvent,
+    /** 展示用的大数字（始终非负） */
+    val displayDays: Long,
+    /** 语义状态：未来 / 今天 / 已过期 / 正计日 */
+    val state: CountdownCalculator.DayState,
+    /** 剩余天数（倒计日可为负） */
     val remainingDays: Long,
+    /** 已过去天数（正计日） */
+    val elapsedDays: Long,
     val totalDays: Long,
-    val progress: Float
-)
+    val progress: Float,
+    /** 当前的排序键，越小越靠前 */
+    val sortValue: Long
+) {
+    val mode: CountdownMode get() = event.mode
+}
 
 /** 列表页 UI 状态 */
 data class CountdownUiState(
@@ -42,12 +55,15 @@ data class CountdownUiState(
     val loading: Boolean = true
 ) {
     val isEmpty: Boolean get() = !loading && items.isEmpty()
+
+    /** 置顶事件，用于顶部 Hero 展示位 */
+    val pinnedItem: CountdownItem? get() = items.firstOrNull { it.event.pinned }
 }
 
 /**
  * 列表页 ViewModel。
  * - 数据源：Room 的 Flow，数据库一变列表自动刷新
- * - 排序：按剩余天数（默认）或按创建时间
+ * - 排序：按天数（默认）或按创建时间
  * - 增删改：直接落库
  */
 class CountdownListViewModel(
@@ -61,9 +77,9 @@ class CountdownListViewModel(
     private val loaded = MutableStateFlow(false)
 
     /**
-     * 注意：这里刻意不用 null 做哨兵值。repository.observeAll() 的类型是
-     * Flow<List<CountdownEvent>>，若用 null 当初值或 catch 的兜底值，会直接编译失败
-     * （"Null can not be a value of a non-null type List<...>"），所以改用独立的 loaded 标志。
+     * 注意：不用 null 当哨兵值。repository.observeAll() 的类型是
+     * Flow<List<CountdownEvent>>，用 null 当初值或兜底值会编译失败，
+     * 所以用独立的 loaded 标志表示"首帧未到"。
      */
     private val items: StateFlow<List<CountdownItem>> = repository.observeAll()
         .map { events -> events.map { it.toItem() } }
@@ -77,9 +93,9 @@ class CountdownListViewModel(
                 CountdownUiState(loading = true, sortOrder = order)
             } else {
                 val sorted = when (order) {
-                    // 按剩余天数升序：已过期的排在最前，越接近今天越靠前
+                    // 数值越小越靠前：倒计日的已过期、正计日的已过越久都排在前面
                     SortOrder.BY_REMAINING_DAYS -> list.sortedWith(
-                        compareBy<CountdownItem> { it.remainingDays }.thenBy { it.event.title }
+                        compareBy<CountdownItem> { it.sortValue }.thenBy { it.event.title }
                     )
                     SortOrder.BY_CREATED_TIME -> list.sortedByDescending { it.event.createdAt }
                 }
@@ -109,12 +125,21 @@ class CountdownListViewModel(
     private fun CountdownEvent.toItem(): CountdownItem {
         val today = LocalDate.now()
         val target = targetLocalDate
-        val createdDate = Instant.ofEpochMilli(createdAt).atZone(ZoneId.systemDefault()).toLocalDate()
+        val createdDate = java.time.Instant.ofEpochMilli(createdAt)
+            .atZone(java.time.ZoneId.systemDefault())
+            .toLocalDate()
+
+        val display = CountdownCalculator.displayDays(this, today)
+
         return CountdownItem(
             event = this,
-            remainingDays = ChronoUnit.DAYS.between(today, target),
+            displayDays = display.days,
+            state = display.state,
+            remainingDays = CountdownCalculator.daysUntil(target, today),
+            elapsedDays = CountdownCalculator.elapsedDays(target, today),
             totalDays = ChronoUnit.DAYS.between(createdDate, target),
-            progress = CountdownCalculator.progressPercent(target, createdAt, today)
+            progress = CountdownCalculator.progressPercent(target, createdAt, today, mode),
+            sortValue = CountdownCalculator.sortKey(this, today)
         )
     }
 }
@@ -127,7 +152,7 @@ class EventEditViewModel(
     private val _saved = MutableStateFlow(false)
     val saved: StateFlow<Boolean> = _saved.asStateFlow()
 
-    /** UI 消费完“保存成功”事件后复位 */
+    /** UI 消费完"保存成功"事件后复位 */
     fun consumeSaved() {
         _saved.value = false
     }
@@ -138,20 +163,25 @@ class EventEditViewModel(
         id: Long,
         title: String,
         targetDate: LocalDate,
+        mode: CountdownMode,
         note: String?,
+        backgroundUri: String?,
         notifyEnabled: Boolean,
         pinned: Boolean
     ) {
         viewModelScope.launch {
             val epochDay = targetDate.toEpochDay()
             val cleanNote = note?.takeIf { it.isNotBlank() }
+            val cleanBg = backgroundUri?.takeIf { it.isNotBlank() }
 
             if (id == 0L) {
                 repository.insert(
                     CountdownEvent(
                         title = title.trim(),
                         targetDate = epochDay,
+                        mode = mode,
                         note = cleanNote,
+                        backgroundUri = cleanBg,
                         pinned = pinned,
                         notifyEnabled = notifyEnabled
                     )
@@ -162,7 +192,9 @@ class EventEditViewModel(
                         existing.copy(
                             title = title.trim(),
                             targetDate = epochDay,
+                            mode = mode,
                             note = cleanNote,
+                            backgroundUri = cleanBg,
                             pinned = pinned,
                             notifyEnabled = notifyEnabled,
                             updatedAt = System.currentTimeMillis()

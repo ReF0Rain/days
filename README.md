@@ -11,13 +11,35 @@ Kotlin + Jetpack Compose 实现的倒计日 App：记录重要日期，实时显
 | 功能 | 实现位置 |
 | --- | --- |
 | 添加 / 编辑 / 删除事件 | `ui/screens/AddEditScreen.kt`、`data/CountdownDao.kt` |
+| **倒计日 / 正计日双模式** | `data/CountdownEvent.kt`（`CountdownMode`）、`data/CountdownCalculator.kt` |
+| **自选图片背景 + 文字清晰度调节** | `util/BackgroundImageStore.kt`、`ui/components/EventCard.kt` |
 | 选择日期（Material3 DatePicker） | `AddEditScreen.kt` 中的 `DatePickerDialog` |
-| 显示剩余天数（今天=0，未来为正，过去为负） | `data/CountdownCalculator.kt`、`ui/components/EventCard.kt` |
-| 按剩余天数排序（可切换创建时间） | `ui/CountdownViewModels.kt` |
-| Room 本地持久化（日期存 epochDay，避免时区偏移） | `data/CountdownEvent.kt`、`CountdownDatabase.kt` |
+| 显示天数（倒计日：未来为正；正计日：已过天数） | `data/CountdownCalculator.kt` |
+| 按天数排序（可切换创建时间） | `ui/CountdownViewModels.kt` |
+| Room 本地持久化 + **显式迁移** | `data/CountdownEvent.kt`、`CountdownDatabase.kt` |
 | Android 13 通知权限 | `MainActivity.kt`、`notification/CountdownNotifications.kt` |
 | 每日更新通知（每天 09:00 对齐，WorkManager 周期任务） | `notification/DailyUpdateScheduler.kt`、`DailyUpdateWorker.kt` |
 | 可选桌面小组件（Glance） | `widget/CountdownWidget.kt`、`widget/CountdownWidgetReceiver.kt` |
+
+### 两种计时模式
+
+| 模式 | 语义 | 举例 | 卡片文案 |
+| --- | --- | --- | --- |
+| 倒计日 `COUNTDOWN` | 距离目标还有多少天 | 婚礼在 2027-05-01 | `128 天后` |
+| 正计日 `COUNTUP` | 从那天起已经过了多少天 | 入职日 2025-03-01 | `已过 365 天` |
+
+两者共用 `target_date` 一个字段，靠 `mode` 列区分；排序口径统一在
+`CountdownCalculator.sortKey()` 里（倒计日按剩余天数、正计日按已过天数取负），
+所以列表页与桌面小组件的顺序始终一致。
+
+### 自定义背景图
+
+- 通过系统照片选择器 `ActivityResultContracts.PickVisualMedia` 选图，
+  **不需要申请存储权限**（Android 13+ 由系统选择器授权）
+- 图片会**复制进应用内部存储**（`filesDir/backgrounds/`），而不是只存 content URI ——
+  用户删掉相册原图后背景不会变空白；换图/删除背景时旧文件会被清理
+- 卡片自动叠加暗化蒙版 + 上下渐变，保证任何图片上的文字都可读；
+  编辑页有「文字清晰度」滑杆可实时预览调节（存进 `background_dim`）
 
 ## 目录结构
 
@@ -137,7 +159,24 @@ py tools\run_unit_test.py .
 # 查 CI 状态 / 拉日志
 py tools\watch_ci.py ReF0Rain/days
 py tools\ci_jobs.py ReF0Rain/days
+
+# 校验数据库迁移：把迁移 SQL 作用在 v1 schema 上，与 Room 期望的 v2 schema 逐列比对
+# （等价于 MigrationTestHelper.runMigrationsAndValidate，但不需要模拟器）
+py tools\verify_migration.py app\schemas
+
+# 校验 base64 解码逻辑（7 种脏数据场景）
+bash tools/test_decode_logic.sh keystore/keystore.base64.txt <口令> "$JAVA_HOME"
 ```
+
+> **改了数据库就一定要跑 `verify_migration.py`**。它会用两个版本的 Room schema JSON
+> 建表、灌一条旧数据、执行迁移 SQL，然后逐列对比类型/非空/默认值与索引。
+> 实测它抓到过一个真问题：迁移里写了 `ADD COLUMN background_uri TEXT DEFAULT NULL`，
+> sqlite 会把默认值记成字符串 `'NULL'`，与 Room 期望的"无默认值"不一致。
+>
+> 有真机/模拟器时也应跑一次真机迁移测试：
+> ```bash
+> ./gradlew :app:connectedDebugAndroidTest   # 见 CountdownMigrationTest
+> ```
 
 > **为什么 `local_build.py` 要复制到 ASCII 路径**：项目路径 `...\新建文件夹\CountdownApp` 含非 ASCII 字符，
 > AGP 会直接抛 `StopExecutionException: Your project path contains non-ASCII characters.`。
