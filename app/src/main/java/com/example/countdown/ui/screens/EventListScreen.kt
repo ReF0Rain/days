@@ -157,53 +157,56 @@ fun EventListScreen(
                         state.items
                     }
                     val hero = state.pinnedItem ?: ordered.firstOrNull()
+                    // Hero 已经展示过的那个事件就不再在列表里重复出现（否则同一个事件出现两次）
+                    val listItems = ordered.filterNot { it.event.id == hero?.event?.id }
 
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(
-                            start = 16.dp,
-                            end = 16.dp,
-                            top = 4.dp,
-                            bottom = 96.dp
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
+                    Column(modifier = Modifier.fillMaxSize()) {
                         if (hero != null) {
-                            item(key = "hero") {
-                                HeroCountdownCard(
-                                    item = hero,
-                                    onClick = { onEditClick(hero.event) }
-                                )
-                            }
-                        }
-
-                        item(key = "section") {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "全部事件",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(Modifier.weight(1f))
-                                Text(
-                                    text = "${state.items.size} 个",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        items(items = ordered, key = { it.event.id }) { item ->
-                            EventCard(
-                                item = item,
-                                onEdit = { onEditClick(item.event) },
-                                onDelete = { pendingDelete = item.event }
+                            HeroCountdownCard(
+                                item = hero,
+                                onClick = { onEditClick(hero.event) },
+                                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp)
                             )
+                        }
+
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(
+                                start = 16.dp,
+                                end = 16.dp,
+                                top = 16.dp,
+                                bottom = 96.dp
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            item(key = "section") {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "全部事件",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(Modifier.weight(1f))
+                                    Text(
+                                        text = "${listItems.size} 个",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            items(items = listItems, key = { it.event.id }) { item ->
+                                EventCard(
+                                    item = item,
+                                    onEdit = { onEditClick(item.event) },
+                                    onDelete = { pendingDelete = item.event }
+                                )
+                            }
                         }
                     }
                 }
@@ -243,15 +246,17 @@ fun EventListScreen(
 @Composable
 private fun HeroCountdownCard(
     item: CountdownItem,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     if (item.event.hasBackground) {
-        EventCard(item = item, onEdit = onClick, onDelete = {})
+        // 有背景图时直接复用 EventCard 的图片形态，保持形态一致
+        EventCard(item = item, onEdit = onClick, onDelete = {}, modifier = modifier)
         return
     }
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .height(190.dp)
             .background(

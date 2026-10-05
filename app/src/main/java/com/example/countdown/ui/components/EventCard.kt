@@ -1,6 +1,7 @@
 package com.example.countdown.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,12 +18,15 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Event
+import androidx.compose.material.icons.outlined.HourglassEmpty
+import androidx.compose.material.icons.outlined.HourglassTop
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -57,9 +61,15 @@ private val CARD_IMAGE_HEIGHT = 210.dp
 /**
  * 事件卡片。
  *
- * 两种视觉形态：
- *  - 无背景图：Material3 卡片 + 主题色数字
- *  - 有背景图：图片铺满 + 暗化蒙版 + 渐变 + 浅色文字，保证任何图片上都可读
+ * 倒计日与正计日在视觉上刻意做出区分，避免"看起来一模一样只是数字不同"：
+ *
+ * | | 倒计日 COUNTDOWN | 正计日 COUNTUP |
+ * |---|---|---|
+ * | 左侧图标 | 日历 | 沙漏 |
+ * | 数字颜色 | 主题蓝 / 临近橙 / 过期红 | 青色（secondary） |
+ * | 数字下方 | 进度条（已过占比） | 已过时长说明文字（无进度条） |
+ * | 分类标签 | 实心描边徽章 | 虚化底徽章 |
+ * | 日期区 | 显示目标日期 | 显示"始于 xxx" |
  */
 @Composable
 fun EventCard(
@@ -72,10 +82,17 @@ fun EventCard(
     var menuExpanded by remember { mutableStateOf(false) }
 
     val onImage = event.hasBackground
+    val isCountUp = item.mode == CountdownMode.COUNTUP
     val accent = if (onImage) Color.White else stateColor(item)
     val primaryText = if (onImage) Color.White else MaterialTheme.colorScheme.onSurface
     val secondaryText =
         if (onImage) Color.White.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant
+    // 正计日徽章用主题青色，倒计日用当前强调色
+    val badgeColor = if (onImage) Color.White else if (isCountUp) {
+        MaterialTheme.colorScheme.secondary
+    } else {
+        accent
+    }
 
     ElevatedCard(
         modifier = modifier.fillMaxWidth(),
@@ -127,31 +144,42 @@ fun EventCard(
                     .then(if (event.hasBackground) Modifier.height(CARD_IMAGE_HEIGHT) else Modifier)
                     .padding(16.dp)
             ) {
+                // ============ 标题行：模式徽章 + 功能图标 ============
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = event.title,
-                        style = MaterialTheme.typography.titleLarge,
-                        color = primaryText,
-                        modifier = Modifier.weight(1f)
+                    ModeBadge(
+                        isCountUp = isCountUp,
+                        onImage = onImage,
+                        color = badgeColor
                     )
+                    Spacer(Modifier.width(8.dp))
 
+                    if (event.notifyEnabled) {
+                        Icon(
+                            imageVector = Icons.Outlined.NotificationsActive,
+                            contentDescription = null,
+                            tint = secondaryText,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                    }
                     if (event.pinned) {
                         Icon(
                             imageVector = Icons.Outlined.PushPin,
                             contentDescription = null,
                             tint = if (onImage) Color.White else MaterialTheme.colorScheme.tertiary,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                         Spacer(Modifier.width(6.dp))
                     }
-                    if (event.notifyEnabled) {
-                        Icon(
-                            imageVector = Icons.Outlined.NotificationsActive,
-                            contentDescription = null,
-                            tint = accent,
-                            modifier = Modifier.size(18.dp)
+
+                    Spacer(Modifier.weight(1f))
+
+                    if (!onImage) {
+                        HorizontalDivider(
+                            modifier = Modifier.width(28.dp),
+                            thickness = 1.dp,
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
                         )
-                        Spacer(Modifier.width(6.dp))
                     }
 
                     Box {
@@ -186,9 +214,17 @@ fun EventCard(
                     }
                 }
 
-                Spacer(Modifier.height(if (event.hasBackground) 22.dp else 8.dp))
+                // ============ 标题 ============
+                Text(
+                    text = event.title,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = primaryText,
+                    modifier = Modifier.padding(top = if (onImage) 14.dp else 6.dp)
+                )
 
-                // 天数主视觉
+                Spacer(Modifier.height(if (onImage) 10.dp else 12.dp))
+
+                // ============ 天数主视觉 ============
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
                         text = item.displayDays.toString(),
@@ -214,10 +250,19 @@ fun EventCard(
                                 else MaterialTheme.colorScheme.error
                             )
                         }
+                        // 正计日在单位下面补一行语义说明，明确"是在数已经过去的时间"
+                        if (isCountUp) {
+                            Text(
+                                text = "从起始日累计",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = secondaryText
+                            )
+                        }
                     }
 
                     Spacer(Modifier.weight(1f))
 
+                    // 正计日：日期区标注"始于"；倒计日：标注目标日
                     Column(horizontalAlignment = Alignment.End) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
@@ -228,7 +273,11 @@ fun EventCard(
                             )
                             Spacer(Modifier.width(4.dp))
                             Text(
-                                text = event.targetLocalDate.formatFull(),
+                                text = if (isCountUp) {
+                                    "始于 " + event.targetLocalDate.formatFull()
+                                } else {
+                                    event.targetLocalDate.formatFull()
+                                },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = secondaryText
                             )
@@ -252,8 +301,34 @@ fun EventCard(
 
                 Spacer(Modifier.height(14.dp))
 
-                // 正计日不画进度条：语义上"已经开始"，画进度会显得像未完成
-                if (item.mode == CountdownMode.COUNTDOWN) {
+                // ============ 底部：倒计日画进度条，正计日改用等长的说明条 ============
+                if (isCountUp) {
+                    // 用与进度条等高的浅色条承载沙漏图标 + 文案，保持两张卡片的高度节奏一致，
+                    // 但一眼就能看出"这里不是进度，而是持续时间"
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.HourglassTop,
+                            contentDescription = null,
+                            tint = badgeColor,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = countUpHint(item),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = badgeColor
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        HorizontalDivider(
+                            modifier = Modifier.weight(1f),
+                            thickness = 2.dp,
+                            color = badgeColor.copy(alpha = 0.35f)
+                        )
+                    }
+                } else {
                     LinearProgressIndicator(
                         progress = { item.progress },
                         modifier = Modifier
@@ -274,20 +349,61 @@ fun EventCard(
                     Text(
                         text = when {
                             item.state == CountdownCalculator.DayState.PAST -> "目标日期已过"
-                            item.mode == CountdownMode.COUNTUP -> "从这一天开始算起"
+                            isCountUp -> "已持续的时间"
                             else -> "距离目标日期"
                         },
                         style = MaterialTheme.typography.labelSmall,
                         color = secondaryText
                     )
                     Text(
-                        text = if (item.mode == CountdownMode.COUNTUP) "正计日" else "倒计日",
+                        text = if (isCountUp) "正计日" else "倒计日",
                         style = MaterialTheme.typography.labelSmall,
                         color = secondaryText
                     )
                 }
             }
         }
+    }
+}
+
+/**
+ * 模式徽章：倒计日（日历图标）/ 正计日（沙漏图标）。
+ * 有背景图时统一用白色半透明底，保证在任何图片上都能看清。
+ */
+@Composable
+private fun ModeBadge(
+    isCountUp: Boolean,
+    onImage: Boolean,
+    color: Color
+) {
+    val shape = RoundedCornerShape(50)
+    val bg = if (onImage) {
+        Color.White.copy(alpha = 0.22f)
+    } else {
+        color.copy(alpha = 0.14f)
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .clip(shape)
+            .background(bg)
+            .border(1.dp, color.copy(alpha = if (onImage) 0.5f else 0.35f), shape)
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    ) {
+        Icon(
+            imageVector = if (isCountUp) Icons.Outlined.HourglassEmpty else Icons.Outlined.Event,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.size(13.dp)
+        )
+        Spacer(Modifier.width(5.dp))
+        Text(
+            text = if (isCountUp) "正计日" else "倒计日",
+            style = MaterialTheme.typography.labelSmall,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            color = if (onImage) Color.White else color
+        )
     }
 }
 
@@ -298,6 +414,9 @@ private fun unitLabel(item: CountdownItem): String = when (item.state) {
     CountdownCalculator.DayState.PAST -> "天前"
     CountdownCalculator.DayState.ELAPSED -> "天"
 }
+
+/** 正计日的补充说明，把天数换成更好懂的"周/月/年" */
+private fun countUpHint(item: CountdownItem): String = CountdownText.countUpHint(item.displayDays)
 
 /** 根据状态给出强调色 */
 @Composable
@@ -343,16 +462,16 @@ private fun EventCardPreview() {
                     event = CountdownEvent(
                         id = 2L,
                         title = "入职第一天",
-                        targetDate = LocalDate.now().minusDays(365).toEpochDay(),
+                        targetDate = LocalDate.now().minusDays(400).toEpochDay(),
                         mode = CountdownMode.COUNTUP
                     ),
-                    displayDays = 365L,
+                    displayDays = 400L,
                     state = CountdownCalculator.DayState.ELAPSED,
-                    remainingDays = -365L,
-                    elapsedDays = 365L,
-                    totalDays = -365L,
+                    remainingDays = -400L,
+                    elapsedDays = 400L,
+                    totalDays = -400L,
                     progress = 1f,
-                    sortValue = -365L
+                    sortValue = -400L
                 ),
                 onEdit = {},
                 onDelete = {}
