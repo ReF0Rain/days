@@ -19,6 +19,10 @@ on:
         description: "同时构建 release APK"
         type: boolean
         default: true
+      diagnostics:
+        description: "只跑签名 Secret 诊断（不构建，用来排查发版签名问题）"
+        type: boolean
+        default: false
 
 # 同一分支连续 push 时取消上一次未完成的构建，省额度（tag 构建不取消）
 concurrency:
@@ -111,6 +115,99 @@ jobs:
             app/build/outputs/logs/**
           if-no-files-found: ignore
           retention-days: 7
+
+  # ==========================================================================
+  # 签名诊断：仅手动触发（Actions -> Run workflow -> 勾选 diagnostics）
+  # 目的：把 4 个签名 Secret 的"自证信息"（长度 / 首尾字符 / 解码字节数 / SHA256）
+  # 打进公开可读的 job 日志。Secret 内容本身不会被打印。
+  # ==========================================================================
+  diagnostics:
+    name: Signing secrets check
+    if: github.event_name == 'workflow_dispatch' && inputs.diagnostics
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Inspect signing secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -uo pipefail
+          echo "############ 签名 Secret 诊断 ############"
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            value="${!name:-}"
+            printf '%-20s 长度=%-6s 空=%s\n' "$name" "${#value}" "$([ -z "$value" ] && echo YES || echo no)"
+          done
+          echo
+
+          if [ -z "${KEYSTORE_BASE64:-}" ]; then
+            echo "::error::KEYSTORE_BASE64 为空或未配置"
+            exit 1
+          fi
+
+          echo "base64 原始长度: ${#KEYSTORE_BASE64}（期望 3668）"
+          CLEAN=""; BAD=0; BAD_LIST=""
+          for (( i=0; i<${#KEYSTORE_BASE64}; i++ )); do
+            ch="${KEYSTORE_BASE64:i:1}"
+            case "$ch" in
+              [A-Za-z0-9+/=]) CLEAN="${CLEAN}${ch}" ;;
+              *) BAD=$((BAD+1))
+                 [ ${#BAD_LIST} -lt 24 ] && BAD_LIST="${BAD_LIST}$(printf '0x%02X ' "'$ch")" ;;
+            esac
+          done
+          BADHASH=$(printf '%s' "$BAD_LIST" | sha256sum | cut -c1-16)
+          echo "非法字符数: ${BAD}  十六进制(sha256 前16=${BADHASH}): ${BAD_LIST}"
+          echo "清洗后长度: ${#CLEAN}"
+          echo "前 24: ${CLEAN:0:24}"
+          echo "末 16: ${CLEAN: -16}"
+
+          REM=$(( ${#CLEAN} % 4 ))
+          echo "长度对 4 取余: ${REM}"
+          [ "$REM" -eq 2 ] && CLEAN="${CLEAN}=="
+          [ "$REM" -eq 3 ] && CLEAN="${CLEAN}="
+
+          printf '%s' "$CLEAN" | base64 --decode > /tmp/ks.jks 2>/tmp/b64err.txt
+          if [ $? -ne 0 ]; then
+            echo "::error::base64 解码失败"
+            cat /tmp/b64err.txt || true
+            exit 1
+          fi
+          echo "解码字节数: $(stat -c%s /tmp/ks.jks)（期望 2750）"
+          echo "sha256: $(sha256sum /tmp/ks.jks | cut -d' ' -f1)"
+          echo "期望  : e31d6cc7fc8788cef0cd76d7f00a3bd9d2a4f17234b60297ef57e87478893289"
+
+          KT=$(command -v keytool || true)
+          [ -z "$KT" ] && [ -n "${JAVA_HOME:-}" ] && [ -x "${JAVA_HOME}/bin/keytool" ] && KT="${JAVA_HOME}/bin/keytool"
+          if [ -n "$KT" ]; then
+            if "$KT" -list -keystore /tmp/ks.jks -storepass "$KEYSTORE_PASSWORD" 2>/tmp/kt.txt; then
+              echo "keystore 口令校验: 通过"
+              "$KT" -list -v -keystore /tmp/ks.jks -storepass "$KEYSTORE_PASSWORD" \
+                | grep -E 'Alias name|SHA256:' | head -n 4
+            else
+              echo "keystore 口令校验: 失败"
+              cat /tmp/kt.txt || true
+            fi
+          else
+            echo "未找到 keytool，跳过口令校验"
+          fi
+
+          # 兼容检查：Secret 里是否塞的是 dotenv/JSON 文本而不是纯 base64
+          if printf '%s' "$KEYSTORE_BASE64" | grep -q 'KEYSTORE_BASE64[[:space:]]*='; then
+            echo "::error::KEYSTORE_BASE64 里似乎包含 'KEYSTORE_BASE64=' 这样的键名，"
+            echo "::error::说明粘贴的是整个文件而不是文件内容。请只粘贴 base64 字符串本身。"
+          fi
+          if printf '%s' "$KEYSTORE_BASE64" | grep -q '"KEYSTORE_BASE64"'; then
+            echo "::error::KEYSTORE_BASE64 里似乎包含 JSON 键名，请只粘贴 base64 字符串。"
+          fi
 
   # ==========================================================================
   # 正式发版：只在 push v* tag 时运行
