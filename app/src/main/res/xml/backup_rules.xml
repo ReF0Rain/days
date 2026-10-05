@@ -1,11 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  仅备份用户数据：Room 数据库 + DataStore 偏好。
-  注意：<exclude> 的 path 必须落在某个 <include> 范围内，否则 lint 会报
-  FullBackupContent 致命错误（release 构建会直接失败）。
-  WorkManager 的内部偏好无需 exclude —— 它本身就不在 include 列表里。
+  云备份 / 换机迁移的数据范围。
+
+  注意：两组规则必须成对修改
+    backup_rules.xml          -> Android 11 及以下（full-backup-content）
+    data_extraction_rules.xml -> Android 12+（data-extraction-rules）
+
+  为什么包含 files/backgrounds：
+    背景图存在 filesDir/backgrounds/ 下。如果不纳入备份，恢复后事件记录里的
+    background_uri 仍然存在、但图片文件没了，卡片背景会变成空白（不崩溃，但用户会认为丢图）。
+
+  为什么不再包含 sharedpref 的 countdown_settings：
+    应用当前没有使用 DataStore（排序方式等状态仅存在于内存中），
+    因此那个 include 指向一个永远不会存在的文件。
+    path 必须落在某个 include 范围内是 <> 的约束方向，这里直接删掉整条即可。
+
+  注意：<exclude> 的 path 必须落在某个 <include> 范围内，否则 lint 报
+  FullBackupContent 致命错误（release 的 lintVitalRelease 会直接失败）。
 -->
 <full-backup-content>
     <include domain="database" path="countdown.db" />
-    <include domain="sharedpref" path="countdown_settings.preferences_pb" />
+    <include domain="file" path="backgrounds/" />
 </full-backup-content>

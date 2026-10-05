@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.Button
@@ -58,12 +59,14 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -123,6 +126,15 @@ fun AddEditScreen(
     var loading by remember { mutableStateOf(!isNew) }
     var showDatePicker by remember { mutableStateOf(false) }
 
+    /**
+     * 本次编辑里新导入、尚未保存的背景图。
+     * 离开页面时如果它既没被保存、也不等于原图，就必须删掉 ——
+     * 否则"选图 -> 取消"会不断在内部存储里留下孤儿文件。
+     */
+    var pendingImageUri by remember { mutableStateOf<String?>(null) }
+    /** 是否由用户主动选过日期（用于切模式时决定要不要纠正默认值） */
+    var dateTouched by remember { mutableStateOf(false) }
+
     val snackbarHostState = remember { SnackbarHostState() }
     val savedState by viewModel.saved.collectAsStateWithLifecycle()
 
@@ -147,15 +159,38 @@ fun AddEditScreen(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { picked ->
         if (picked != null) {
+            // 复制并降采样后存入内部存储（见 BackgroundImageStore）
             val stored = BackgroundImageStore.import(context, picked)
             if (stored != null) {
+                // 上一次导入但还没保存的图先删掉，避免反复换图时堆积
+                pendingImageUri?.takeIf { it != backgroundUri && it != originalBackgroundUri }
+                    ?.let { BackgroundImageStore.deleteIfUnused(context, it) }
                 backgroundUri = stored
+                pendingImageUri = stored
             } else {
                 scope.launch {
                     snackbarHostState.showSnackbar(
                         context.getString(R.string.background_import_failed)
                     )
                 }
+            }
+        }
+    }
+
+    // ---------------- 离开页面时清理未保存的新图 ----------------
+    // 用 rememberUpdatedState 保证回调里读到的永远是最新值（DisposableEffect 的 key 是 Unit，
+    // 只注册一次，直接捕获变量会一直是旧值）。
+    val currentBackground by rememberUpdatedState(backgroundUri)
+    val currentPending by rememberUpdatedState(pendingImageUri)
+    val currentOriginal by rememberUpdatedState(originalBackgroundUri)
+    val currentSaved by rememberUpdatedState(savedState)
+    DisposableEffect(Unit) {
+        onDispose {
+            val pending = currentPending
+            val keep = currentSaved || pending == null ||
+                pending == currentBackground || pending == currentOriginal
+            if (!keep) {
+                BackgroundImageStore.deleteIfUnused(context, pending)
             }
         }
     }
@@ -211,6 +246,8 @@ fun AddEditScreen(
         if (originalBackgroundUri != null && originalBackgroundUri != backgroundUri) {
             BackgroundImageStore.deleteIfUnused(context, originalBackgroundUri)
         }
+        // 这张新图已经被事件引用了，从"待清理"里移除，避免 onDispose 误删
+        pendingImageUri = null
     }
 
     Scaffold(
@@ -272,14 +309,26 @@ fun AddEditScreen(
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                     SegmentedButton(
                         selected = mode == CountdownMode.COUNTDOWN,
-                        onClick = { mode = CountdownMode.COUNTDOWN },
+                        onClick = {
+                            // 切模式时若日期还是系统给的默认值，纠正成符合语义的默认值，
+                            // 避免"正计日 + 起始日在未来"这种一看就是选反了的组合
+                            if (!dateTouched) {
+                                targetDate = LocalDate.now().plusDays(1)
+                            }
+                            mode = CountdownMode.COUNTDOWN
+                        },
                         shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
                     ) {
                         Text(stringResource(R.string.mode_countdown))
                     }
                     SegmentedButton(
                         selected = mode == CountdownMode.COUNTUP,
-                        onClick = { mode = CountdownMode.COUNTUP },
+                        onClick = {
+                            if (!dateTouched && targetDate.isAfter(LocalDate.now())) {
+                                targetDate = LocalDate.now()
+                            }
+                            mode = CountdownMode.COUNTUP
+                        },
                         shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
                     ) {
                         Text(stringResource(R.string.mode_countup))
@@ -294,6 +343,42 @@ fun AddEditScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 6.dp)
                 )
+
+                // ---------- 日期与模式矛盾时的提示 ----------
+                // 正计日的起始日在未来 -> 永远显示 0 天（数据层用 coerceAtLeast(0) 兜底），
+                // 这里明确告诉用户改日期，而不是让它静默显示错误结果
+                val today = LocalDate.now()
+                val dateWarning = when {
+                    mode == CountdownMode.COUNTUP && targetDate.isAfter(today) ->
+                        stringResource(R.string.warn_countup_future)
+                    mode == CountdownMode.COUNTDOWN && targetDate.isBefore(today) ->
+                        stringResource(R.string.warn_countdown_past)
+                    else -> null
+                }
+                if (dateWarning != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.6f))
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Warning,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = dateWarning,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
 
                 Spacer(Modifier.height(20.dp))
 
@@ -586,6 +671,8 @@ fun AddEditScreen(
                             targetDate = Instant.ofEpochMilli(millis)
                                 .atZone(ZoneOffset.UTC)
                                 .toLocalDate()
+                            // 用户主动选过日期后，切模式就不再覆盖他的选择
+                            dateTouched = true
                         }
                         showDatePicker = false
                     }

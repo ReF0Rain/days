@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ 的备份 / 换机迁移规则，内容与 backup_rules.xml 保持一致
+  （详见该文件里的说明：为什么排除 sharedpref、为什么包含 files/backgrounds）。
+-->
 <data-extraction-rules>
     <cloud-backup>
         <include domain="database" path="countdown.db" />
-        <include domain="sharedpref" path="countdown_settings.preferences_pb" />
+        <include domain="file" path="backgrounds/" />
     </cloud-backup>
     <device-transfer>
         <include domain="database" path="countdown.db" />
-        <include domain="sharedpref" path="countdown_settings.preferences_pb" />
+        <include domain="file" path="backgrounds/" />
     </device-transfer>
 </data-extraction-rules>

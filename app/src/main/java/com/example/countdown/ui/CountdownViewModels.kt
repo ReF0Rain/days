@@ -10,17 +10,22 @@ import com.example.countdown.data.CountdownCalculator
 import com.example.countdown.data.CountdownEvent
 import com.example.countdown.data.CountdownMode
 import com.example.countdown.data.CountdownRepository
+import com.example.countdown.util.DateTicker
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 
 /** 列表排序方式 */
@@ -77,27 +82,41 @@ class CountdownListViewModel(
     private val loaded = MutableStateFlow(false)
 
     /**
-     * 注意：不用 null 当哨兵值。repository.observeAll() 的类型是
-     * Flow<List<CountdownEvent>>，用 null 当初值或兜底值会编译失败，
-     * 所以用独立的 loaded 标志表示"首帧未到"。
+     * "今天"的日期，每跨一个本地零点推进一步。
+     *
+     * 为什么需要：天数是在这里按今天的日期算出来的，而 Room 只在数据变化时重新发射。
+     * 没有这个 ticker 的话，应用在前台过夜时"剩余 1 天"不会变成 0（核心功能失效）。
+     * 同时它也覆盖了时区/夏令时切换导致日期跳变的情况。
      */
-    private val items: StateFlow<List<CountdownItem>> = repository.observeAll()
-        .map { events -> events.map { it.toItem() } }
+    private val today: Flow<LocalDate> = flow {
+        while (true) {
+            emit(DateTicker.today())
+            delay(DateTicker.millisUntilNextDay())
+        }
+    }
+
+    /**
+     * 原始事件流。注意这里只发射实体，不与日期耦合 ——
+     * 派生数据（天数/排序键）在下面的 combine 里按"当前日期"计算，
+     * 这样日期一变就会整体重算，而不用等数据库变化。
+     */
+    private val events: StateFlow<List<CountdownEvent>> = repository.observeAll()
         .onEach { loaded.value = true }
         .catch { emit(emptyList()) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val uiState: StateFlow<CountdownUiState> =
-        combine(items, sortOrder, loaded) { list, order, isLoaded ->
+        combine(events, sortOrder, loaded, today) { list, order, isLoaded, date ->
             if (!isLoaded) {
                 CountdownUiState(loading = true, sortOrder = order)
             } else {
+                val items = list.map { it.toItem(date) }
                 val sorted = when (order) {
                     // 数值越小越靠前：倒计日的已过期、正计日的已过越久都排在前面
-                    SortOrder.BY_REMAINING_DAYS -> list.sortedWith(
+                    SortOrder.BY_REMAINING_DAYS -> items.sortedWith(
                         compareBy<CountdownItem> { it.sortValue }.thenBy { it.event.title }
                     )
-                    SortOrder.BY_CREATED_TIME -> list.sortedByDescending { it.event.createdAt }
+                    SortOrder.BY_CREATED_TIME -> items.sortedByDescending { it.event.createdAt }
                 }
                 CountdownUiState(items = sorted, sortOrder = order, loading = false)
             }
@@ -121,27 +140,32 @@ class CountdownListViewModel(
     fun deleteById(id: Long) {
         viewModelScope.launch { repository.deleteById(id) }
     }
+}
 
-    private fun CountdownEvent.toItem(): CountdownItem {
-        val today = LocalDate.now()
-        val target = targetLocalDate
-        val createdDate = java.time.Instant.ofEpochMilli(createdAt)
-            .atZone(java.time.ZoneId.systemDefault())
-            .toLocalDate()
+/**
+ * 把实体转成带派生数据的展示项。
+ *
+ * 抽成 internal 顶层函数是为了可单测（不需要 Application/ViewModel）。
+ * 注意 [date] 必须显式传入 —— 之前用 LocalDate.now() 默认参数导致跨零点不刷新。
+ */
+internal fun CountdownEvent.toItem(date: LocalDate): CountdownItem {
+    val target = targetLocalDate
+    val createdDate = Instant.ofEpochMilli(createdAt)
+        .atZone(ZoneId.systemDefault())
+        .toLocalDate()
+    val display = CountdownCalculator.displayDays(this, date)
 
-        val display = CountdownCalculator.displayDays(this, today)
-
-        return CountdownItem(
-            event = this,
-            displayDays = display.days,
-            state = display.state,
-            remainingDays = CountdownCalculator.daysUntil(target, today),
-            elapsedDays = CountdownCalculator.elapsedDays(target, today),
-            totalDays = ChronoUnit.DAYS.between(createdDate, target),
-            progress = CountdownCalculator.progressPercent(target, createdAt, today, mode),
-            sortValue = CountdownCalculator.sortKey(this, today)
-        )
-    }
+    return CountdownItem(
+        event = this,
+        displayDays = display.days,
+        state = display.state,
+        remainingDays = CountdownCalculator.daysUntil(target, date),
+        elapsedDays = CountdownCalculator.elapsedDays(target, date),
+        // 创建日 -> 目标日的时间跨度。倒计日为正；正计日因为目标日早于创建日会是负数，
+        // 所以统一取绝对值，避免把负数天数暴露给 UI。
+        totalDays = kotlin.math.abs(ChronoUnit.DAYS.between(createdDate, target)),        progress = CountdownCalculator.progressPercent(target, createdAt, date, mode),
+        sortValue = CountdownCalculator.sortKey(this, date)
+    )
 }
 
 /** 编辑页 ViewModel：读取单条事件与保存 */

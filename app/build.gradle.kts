@@ -199,7 +199,8 @@ tasks.register("printSigningInfo") {
     val signed = hasReleaseSigning
     val storeName = releaseStoreFile?.name ?: "（未找到）"
     val alias = releaseKeyAlias ?: "（未配置）"
-    val tag = currentTag ?: "（当前提交没有 tag）"
+    // currentTag 是 String（ValueSource 拿不到 tag 时返回空串），不是可空类型
+    val tag = currentTag.ifBlank { "（当前提交没有 tag）" }
     val code = tagVersionCode ?: 1
     val name = tagVersionName ?: "1.0.0"
     doLast {
@@ -237,9 +238,6 @@ dependencies {
 
     // ---------- WorkManager ----------
     implementation(libs.androidx.work.runtime.ktx)
-
-    // ---------- DataStore ----------
-    implementation(libs.androidx.datastore.preferences)
 
     // ---------- Glance 桌面小组件 ----------
     implementation(libs.androidx.glance.appwidget)

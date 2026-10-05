@@ -87,8 +87,4 @@ data class CountdownEvent(
     /** 是否带自定义背景图 */
     val hasBackground: Boolean
         get() = !backgroundUri.isNullOrBlank()
-
-    /** 带背景时文字需要用浅色 */
-    val usesLightForeground: Boolean
-        get() = hasBackground && backgroundDim >= 0.25f
 }

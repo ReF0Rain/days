@@ -164,14 +164,4 @@ class CountdownCalculatorTest {
                 .hasBackground
         )
     }
-
-    @Test
-    fun `usesLightForeground only when a background is visible`() {
-        val withImage = CountdownEvent(
-            title = "a", targetDate = 0L, backgroundUri = "file:///x.jpg", backgroundDim = 0.35f
-        )
-        assertTrue(withImage.usesLightForeground)
-        assertFalse(withImage.copy(backgroundDim = 0.1f).usesLightForeground)
-        assertFalse(CountdownEvent(title = "a", targetDate = 0L).usesLightForeground)
-    }
 }

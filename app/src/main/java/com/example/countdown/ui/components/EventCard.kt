@@ -317,7 +317,7 @@ fun EventCard(
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            text = countUpHint(item),
+                            text = CountdownText.countUpHint(item.displayDays),
                             style = MaterialTheme.typography.labelSmall,
                             color = badgeColor
                         )
@@ -414,9 +414,6 @@ private fun unitLabel(item: CountdownItem): String = when (item.state) {
     CountdownCalculator.DayState.PAST -> "天前"
     CountdownCalculator.DayState.ELAPSED -> "天"
 }
-
-/** 正计日的补充说明，把天数换成更好懂的"周/月/年" */
-private fun countUpHint(item: CountdownItem): String = CountdownText.countUpHint(item.displayDays)
 
 /** 根据状态给出强调色 */
 @Composable

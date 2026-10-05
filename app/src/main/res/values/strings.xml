@@ -78,6 +78,8 @@
     <string name="field_pinned">置顶高亮</string>
     <string name="field_pinned_desc">在列表顶部与桌面小组件中优先展示</string>
     <string name="pick_date">选择日期</string>
+    <string name="warn_countup_future">起始日期在未来：正计日会一直显示 0 天，建议改成今天或更早的日期</string>
+    <string name="warn_countdown_past">目标日期已过去：倒计日会显示为已过期，如需记录"已经过了多久"请改用正计日</string>
     <string name="error_title_required">请输入事件名称</string>
     <string name="error_save_failed">保存失败，请重试</string>
     <string name="saved_toast">已保存</string>
