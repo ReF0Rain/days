@@ -129,15 +129,20 @@ function Get-TargetDevice {
 }
 
 function Invoke-Adb {
-    param([string[]]$Arguments)
-    & $adb @Arguments
-    if ($LASTEXITCODE -ne 0) { throw "adb $($Arguments -join ' ') 失败（退出码 $LASTEXITCODE）" }
+    param([string[]]$AdbArgs)
+    # 注意：这里不能写 & $adb @Arguments —— 参数名若叫 Arguments，
+    # "@Arguments" 会被 PowerShell 当成变量 splatting（不是数组展开）。
+    & $adb $AdbArgs
+    if ($LASTEXITCODE -ne 0) { throw "adb $($AdbArgs -join ' ') 失败（退出码 $LASTEXITCODE）" }
 }
 
 function Show-Devices {
     Write-Host ''
     Write-Host '=== adb devices ===' -ForegroundColor Cyan
-    & $adb devices -l
+    # 关键：管道到 Out-Null。native 命令的输出会走 PowerShell 管道，
+    # 若直接调用，函数返回值就变成 [设备列表行..., 序列号] 的数组，
+    # 调用方拿它去拼 adb 命令会得到 "unknown host service" 这种畸形报错。
+    & $adb devices -l | Out-Null
     $d = Get-TargetDevice
     if ($d) { Write-Host "可用设备: $d" -ForegroundColor Green }
     else {
@@ -157,18 +162,33 @@ function Build-Apks {
     if ($LASTEXITCODE -ne 0) { throw '构建失败，先修构建再测真机' }
 
     $apkDir = Join-Path $env:TEMP 'CountdownApp\app\build\outputs\apk'
-    return @{
+    # 注意：必须用逗号包成单个对象再 return。
+    # PowerShell 在函数返回时会"展开"集合，直接写 return @{...} 会把哈希表
+    # 拆成键值对数组，调用方拿到的就是 Object[]（报错：无法转换为 Hashtable）。
+    return ,@{
         App  = Join-Path $apkDir 'debug\app-debug.apk'
         Test = Join-Path $apkDir 'androidTest\debug\app-debug-androidTest.apk'
     }
+}
+
+# Build-Apks 会把 py 的输出一并写进管道，所以调用方拿到的数组是
+# [输出行..., Hashtable]。这个辅助函数负责取出真正的哈希表并校验文件存在。
+function Get-ApkTable {
+    param($Result)
+    $table = $Result | Where-Object { $_ -is [hashtable] } | Select-Object -Last 1
+    if (-not $table) { throw '没能从构建结果里取到 APK 路径表' }
+    foreach ($k in @('App', 'Test')) {
+        if (-not (Test-Path $table[$k])) { throw "APK 不存在：$($table[$k])" }
+    }
+    return $table
 }
 
 function Install-Apks {
     param([string]$Device, [hashtable]$Apks)
     Write-Host ''
     Write-Host '=== 安装到设备 ===' -ForegroundColor Cyan
-    Invoke-Adb @('-s', $Device, 'install', '-r', '-t', $Apks.App)
-    Invoke-Adb @('-s', $Device, 'install', '-r', '-t', $Apks.Test)
+    Invoke-Adb -AdbArgs @('-s', $Device, 'install', '-r', '-t', $Apks.App)
+    Invoke-Adb -AdbArgs @('-s', $Device, 'install', '-r', '-t', $Apks.Test)
     Write-Host '安装完成' -ForegroundColor Green
 }
 
@@ -242,13 +262,13 @@ switch ($Action) {
     'install' {
         $d = Show-Devices
         if (-not $d) { throw '没有可用设备' }
-        $apks = Build-Apks
+        $apks = Get-ApkTable (Build-Apks)
         Install-Apks -Device $d -Apks $apks
     }
     'test' {
         $d = Show-Devices
         if (-not $d) { throw '没有可用设备' }
-        $apks = Build-Apks
+        $apks = Get-ApkTable (Build-Apks)
         Install-Apks -Device $d -Apks $apks
         Run-Tests -Device $d | Out-Null
     }
@@ -265,7 +285,7 @@ switch ($Action) {
             Show-WirelessSteps
             return
         }
-        $apks = Build-Apks
+        $apks = Get-ApkTable (Build-Apks)
         Install-Apks -Device $d -Apks $apks
         Run-Tests -Device $d | Out-Null
         Capture-Log -Device $d -Seconds $LogSeconds | Out-Null
