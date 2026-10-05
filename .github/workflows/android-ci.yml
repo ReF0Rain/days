@@ -155,19 +155,49 @@ jobs:
           fi
 
           echo "Secret 原始长度: ${#KEYSTORE_BASE64}"
-          # 去掉所有空白（换行/回车/空格/制表符）和 BOM
-          CLEAN=$(printf '%s' "$KEYSTORE_BASE64" | tr -d '[:space:]\357\273\277')
+          # 逐字符扫描，找出 base64 字母表之外的字符（换行/空格/BOM/全角字符等）。
+          # 用纯 bash 判断，不依赖 tr 的区域设置行为（不同 locale 下 [:space:] 可能不一致），
+          # 而且非 ASCII 字节按字节处理也不会被截断。
+          CLEAN=""
+          BAD=0
+          BAD_LIST=""
+          for (( i=0; i<${#KEYSTORE_BASE64}; i++ )); do
+            ch="${KEYSTORE_BASE64:i:1}"
+            case "$ch" in
+              [A-Za-z0-9+/=]) CLEAN="${CLEAN}${ch}" ;;
+              *) BAD=$((BAD+1))
+                 if [ ${#BAD_LIST} -lt 20 ]; then
+                   BAD_LIST="${BAD_LIST}$(printf '0x%02X ' "'$ch")"
+                 fi ;;
+            esac
+          done
           echo "清洗后长度: ${#CLEAN}"
-          if [ ${#KEYSTORE_BASE64} -eq ${#CLEAN} ]; then
-            echo "Secret 干净，无多余空白"
+          if [ "$BAD" -eq 0 ]; then
+            echo "Secret 干净，无多余字符"
           else
-            echo "::notice::Secret 里混入了空白字符，已自动清除（建议重新粘贴以避免歧义）"
+            echo "::notice::Secret 含 ${BAD} 个 base64 字母表外的字符（已自动剔除）: ${BAD_LIST}"
+            echo "::notice::这通常是把文件内容复制进 Secret 时带进了换行或空格，建议重新粘贴"
+          fi
+          echo "参考值：正确内容 3668 字符，解码后 2750 字节（规范 base64，末尾可能需要 0~2 个 = 补位）"
+
+          if [ "${#CLEAN}" -lt 3000 ]; then
+            echo "::error::清洗后仅 ${#CLEAN} 个字符，Secret 内容明显不完整（应约 3668）"
+            echo "::error::请执行: Get-Content keystore\\keystore.base64.txt | Set-Clipboard 后重新粘贴 KEYSTORE_BASE64"
+            exit 1
+          fi
+
+          # 规范 base64 长度必须是 4 的倍数，缺的补位符补上（容忍被省略的尾部 '='）
+          REM=$(( ${#CLEAN} % 4 ))
+          if [ "$REM" -eq 2 ]; then CLEAN="${CLEAN}=="
+          elif [ "$REM" -eq 3 ]; then CLEAN="${CLEAN}="
+          elif [ "$REM" -eq 1 ]; then
+            echo "::error::base64 长度 ${#CLEAN} 对 4 取余为 1，内容不合法（可能缺字符）"
+            exit 1
           fi
 
           mkdir -p keystore
           if ! printf '%s' "$CLEAN" | base64 --decode > keystore/countdown.jks 2>/dev/null; then
-            echo "::error::base64 解码失败。参考值：正确内容应为 3668 个字符、解码后 2750 字节。"
-            echo "::error::请重新执行: Get-Content keystore\\keystore.base64.txt | Set-Clipboard 后覆盖粘贴 KEYSTORE_BASE64"
+            echo "::error::base64 解码失败"
             exit 1
           fi
 
