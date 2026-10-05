@@ -189,3 +189,88 @@ private val MIGRATION_1_2 = object : Migration(1, 2) {
 | `KEY_PASSWORD` | 发版必需 | 密钥口令（与 keystore 口令相同） |
 
 未配置时 CI **不会失败**，但 release APK 会是 debug 签名，Release 说明里也会明确标注警告。
+
+---
+
+## 五、发版失败怎么排查
+
+### 5.1 签名诊断（推荐第一步）
+
+GitHub → **Actions** → 左侧选 `Android CI` → 右上 **Run workflow** → 勾选 **`diagnostics`** → 运行。
+
+诊断 job（`Signing secrets check`）会把下列信息写进**公开可读**的 job 日志，**不打印任何 Secret 内容**：
+
+```
+KEYSTORE_BASE64      长度=3668   空=no
+KEYSTORE_PASSWORD    长度=24     空=no
+KEY_ALIAS            长度=9      空=no
+KEY_PASSWORD         长度=24     空=no
+
+base64 原始长度: 3668（期望 3668）
+非法字符数: 0  十六进制(sha256前16=...): 
+清洗后长度: 3668
+前 24: MIIKugIBAzCCCmQGCSqGSIb3
+末 16: 9hIb2cxix+XCIQICJxA=
+长度对 4 取余: 0
+解码字节数: 2750（期望 2750）
+sha256: e31d6cc7fc8788cef0cd76d7f00a3bd9d2a4f17234b60297ef57e87478893289
+期望  : e31d6cc7fc8788cef0cd76d7f00a3bd9d2a4f17234b60297ef57e87478893289
+keystore 口令校验: 通过
+```
+
+**对照表**：
+
+| 现象 | 含义 | 处理 |
+| --- | --- | --- |
+| `长度=0 空=yes` | Secret 名写错或没保存 | 检查名字是否完全一致（区分大小写） |
+| 非法字符数 > 0，且十六进制含 `0A`/`0D`/`20` | 粘贴时带进了换行/回车/空格 | 用 `Get-Content keystore\keystore.base64.txt \| Set-Clipboard` 重新粘贴 |
+| 非法字符含 `EF BB BF` | 带进了 UTF-8 BOM | 同上，重新粘贴（不要从文件"另存为"取内容） |
+| 清洗后长度 < 3668 | 内容被截断 | 重新完整复制 |
+| 解码字节数 ≠ 2750 或 sha256 不匹配 | 内容不是这个 keystore | 确认用的是本仓库生成的 `keystore.base64.txt` |
+| 口令校验失败 | `KEYSTORE_PASSWORD` 与 keystore 实际口令不符 | 见 `keystore/keystore.properties` 的 `storePassword` |
+
+### 5.2 为什么不用 `echo "$SECRET" | base64 -d`
+
+最初的实现是这一行，结果 tag 发版在第 5 步反复失败：
+
+```bash
+echo "$KEYSTORE_BASE64" | base64 --decode > keystore/countdown.jks   # ❌ 太脆
+```
+
+`base64 --decode` 对**任何** base64 字母表之外的字符零容忍（包括看不见的换行、空格、BOM），
+遇到就报 `invalid input`。而把 3668 字符复制进网页表单时，带进不可见字符是很常见的。
+
+现在的实现（`.github/workflows/android-ci.yml` 的 `Decode signing keystore` 步骤）：
+
+1. **逐字符扫描**，只保留 `[A-Za-z0-9+/=]`，并统计/打印被剔除字符的十六进制
+   （不用 `tr -d '[:space:]'`，因为不同 locale 下 `[:space:]` 行为不一致，且可能截断非 ASCII 字节）
+2. 长度不足 3000 直接判为"内容不完整"并给出重新复制的命令
+3. **自动补齐**被吞掉的尾部 `=` 补位符（长度 %4 == 2 补 `==`，== 3 补 `=`，== 1 判非法）
+4. 打印解码后字节数与 SHA256，与期望值直接比对
+5. 用 `keytool -list` 校验 keystore 能被口令打开（带 `JAVA_HOME` 兜底）
+
+### 5.3 日志在哪儿看
+
+- **Actions 页面**：`https://github.com/<owner>/<repo>/actions` → 点进某次运行 → 点左侧 job 名 → 展开步骤
+- **注意**：GitHub 现在对**未登录**请求一律拒绝下载 job 原始日志和 artifact（HTTP 403），
+  必须登录浏览器或用 `gh run view --log`。想本地自动化读取，装 GitHub CLI 后：
+  ```powershell
+  winget install GitHub.cli
+  gh auth login
+  gh run list -R ReF0Rain/days
+  gh run view <run-id> --log -R ReF0Rain/days
+  ```
+
+### 5.4 本地复现发版流程
+
+不依赖 CI 也能验证签名与版本号：
+
+```powershell
+py tools\local_build.py --task :app:assembleRelease :app:printSigningInfo
+# [signing] release 使用正式 keystore：countdown.jks, alias=countdown
+# [version] tag=v1.0.0 -> versionName=1.0.0, versionCode=10000
+
+# 校验产物签名（应显示 CN=Countdown，而不是 CN=Android Debug）
+& "$env:ANDROID_HOME\build-tools\34.0.0\apksigner" verify --print-certs `
+  app\build\outputs\apk\release\app-release.apk
+```

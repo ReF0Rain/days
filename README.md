@@ -159,6 +159,11 @@ git push origin v1.0.0
 # 之后永久下载地址： https://github.com/ReF0Rain/days/releases/latest
 ```
 
+发版失败时先跑**签名诊断**（在 Actions 页面 Run workflow 时勾选 `diagnostics`）：
+它会把 4 个 Secret 的长度、base64 清洗前后长度、解码后字节数与 SHA256、keystore 口令校验
+结果全部打进公开可读的 job 日志，便于一眼定位是 Secret 内容问题还是流程问题。
+详见 [docs/RELEASE.md](docs/RELEASE.md) 第五节。
+
 **版本号从 tag 自动推导**，不需要手改 `build.gradle.kts`：`v1.2.3` → versionName `1.2.3`、
 versionCode `10203`（= `1*10000 + 2*100 + 3`）。没有 tag 时回落到 `1.0.0` / `1`。
 
