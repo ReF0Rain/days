@@ -236,3 +236,18 @@ adb install -r app/build/outputs/apk/release/app-release.apk
 - **通知权限**：仅在 Android 13+ 请求；被拒绝时事件仍可保存，只是不发通知。
 - **数据库迁移**：刻意不用 `fallbackToDestructiveMigration()`（那会静默清空用户数据），
   改为显式注册迁移；改表结构时请按 [docs/RELEASE.md](docs/RELEASE.md) 第三节的步骤操作。
+- **跨零点刷新**：天数由 `util/DateTicker` 驱动的按天 ticker 重算，
+  所以应用在前台过夜时"剩余 1 天"会正确变成 0。
+  `CountdownItem` 的派生逻辑是顶层函数 `toItem(date)`，日期必须显式传入（便于单测）。
+- **背景图存储**：导入时按最长边 1440px 降采样 + JPEG 85 重编码，
+  不原样保存相册原图（否则 12MP 照片会带来 OOM 风险）。
+
+### 已知限制
+
+| 项 | 说明 |
+| --- | --- |
+| 每日通知时间 | WorkManager 周期任务，Doze 下可能被推迟，不保证精确 9:00 |
+| 未做真机验证 | 迁移测试 `CountdownMigrationTest` 需要真机/模拟器，尚未运行过 |
+| 无 UI 自动化测试 | 界面改动只能靠安装后人工确认（这是"正计日看不出区别"那次问题的根因） |
+| 排序方式不持久化 | 「按天数 / 按创建时间」切换后重启会回到默认值 |
+| 两个 APK 并存 | debug 包 `applicationId` 带 `.debug` 后缀，会和 release 包装成两个图标 |
